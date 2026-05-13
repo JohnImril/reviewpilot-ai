@@ -1,13 +1,44 @@
 # ReviewPilot AI
 
-Small Next.js app for checking pasted git diffs and returning a structured review.
+ReviewPilot AI is a small Next.js app that reviews pasted git diffs and returns a structured pull request review.
 
-The current implementation uses a local mock provider, so it works without API keys.
+The current version uses a local mock AI provider, so it works without API keys or external services.
 
-## Run
+## Preview
+
+| Empty dashboard | Review result |
+| --- | --- |
+| ![Empty ReviewPilot AI dashboard](./public/screenshots/dashboard-empty.png) | ![Generated ReviewPilot AI review result](./public/screenshots/review-result.png) |
+
+## What It Does
+
+- Accepts unified git diffs from GitHub, GitLab, or local `git diff` output.
+- Shows quick diff stats: changed lines, touched files, and character count.
+- Detects likely bug risks with local heuristics.
+- Suggests refactoring opportunities and missing test coverage.
+- Returns an overall risk level, confidence score, and merge recommendation.
+- Includes bundled example diffs for quick demos.
+
+## Tech Stack
+
+- Next.js 16
+- React 19
+- TypeScript
+- Tailwind CSS 4
+- Zod
+- Lucide React
+
+## Getting Started
+
+Install dependencies:
 
 ```bash
 npm install
+```
+
+Start the development server:
+
+```bash
 npm run dev
 ```
 
@@ -15,27 +46,53 @@ Open `http://localhost:3000`.
 
 ## Scripts
 
-```bash
-npm run lint
-npm run format
-npm run format:check
-npm run build
-```
-
-## Structure
-
-- `app/page.tsx` - main UI
-- `app/api/review/route.ts` - review endpoint
-- `lib/schemas/review.ts` - request and response schemas
-- `lib/ai/mockReview.ts` - local review logic
-- `data/exampleDiffs.ts` - sample diffs for the UI
+| Command | Description |
+| --- | --- |
+| `npm run dev` | Start the local development server. |
+| `npm run build` | Create a production build. |
+| `npm run start` | Start the production server after building. |
+| `npm run lint` | Run ESLint. |
+| `npm run format` | Format files with Prettier. |
+| `npm run format:check` | Check formatting without writing changes. |
 
 ## API
 
 `POST /api/review`
+
+Request body:
 
 ```json
 {
   "diff": "diff --git a/app/page.tsx b/app/page.tsx\n..."
 }
 ```
+
+Response shape:
+
+```json
+{
+  "summary": "ReviewPilot inspected 42 changed lines across 2 files...",
+  "overallRisk": "medium",
+  "possibleBugs": [],
+  "refactoringSuggestions": [],
+  "testSuggestions": [],
+  "mergeRecommendation": "needs_changes",
+  "confidence": 0.82
+}
+```
+
+## Project Structure
+
+| Path | Purpose |
+| --- | --- |
+| `app/page.tsx` | Main review workspace UI. |
+| `app/api/review/route.ts` | Review API endpoint. |
+| `lib/ai/mockReview.ts` | Local deterministic review heuristics. |
+| `lib/ai/reviewProvider.ts` | Provider interface for future AI integrations. |
+| `lib/schemas/review.ts` | Request and response schemas. |
+| `data/exampleDiffs.ts` | Demo diffs used by the UI. |
+| `public/screenshots/` | README screenshots. |
+
+## Notes
+
+The mock provider is deterministic and intended for local demos. It can be replaced later with a real LLM-backed provider while keeping the same API response schema.
