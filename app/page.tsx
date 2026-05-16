@@ -18,6 +18,7 @@ import {
 import { useMemo, useState } from "react";
 import { exampleDiffs } from "@/data/exampleDiffs";
 import {
+  type ReviewMode,
   reviewResponseSchema,
   type ReviewIssue,
   type ReviewResponse,
@@ -41,8 +42,40 @@ const recommendationLabels = {
   reject: "Reject",
 };
 
+const reviewModes: Array<{
+  value: ReviewMode;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: "general",
+    label: "General",
+    description: "Balanced review",
+  },
+  {
+    value: "react",
+    label: "React",
+    description: "Hooks and rendering",
+  },
+  {
+    value: "typescript",
+    label: "TypeScript",
+    description: "Types and contracts",
+  },
+  {
+    value: "performance",
+    label: "Frontend Performance",
+    description: "Render cost",
+  },
+];
+
+const reviewModeLabels = Object.fromEntries(
+  reviewModes.map((mode) => [mode.value, mode.label]),
+) as Record<ReviewMode, string>;
+
 export default function Home() {
   const [diff, setDiff] = useState("");
+  const [reviewMode, setReviewMode] = useState<ReviewMode>("general");
   const [review, setReview] = useState<ReviewResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
@@ -71,7 +104,7 @@ export default function Home() {
       const response = await fetch("/api/review", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ diff }),
+        body: JSON.stringify({ diff, mode: reviewMode }),
       });
 
       const payload: unknown = await response.json();
@@ -142,7 +175,8 @@ export default function Home() {
               <p className="text-base leading-7 text-zinc-600 sm:text-lg">
                 Paste a git diff and get a structured review with likely bugs,
                 refactoring opportunities, test coverage gaps, risk level, and a
-                merge recommendation. The MVP runs fully without API keys.
+                merge recommendation. Choose a review mode to focus the local
+                heuristics. The MVP runs fully without API keys.
               </p>
             </div>
             <div className="grid grid-cols-3 gap-3 rounded-lg border border-zinc-200 bg-zinc-50 p-3">
@@ -186,6 +220,14 @@ export default function Home() {
           </div>
 
           <div className="p-4 sm:p-5">
+            <ReviewModeSelector
+              selectedMode={reviewMode}
+              onSelect={(mode) => {
+                setReviewMode(mode);
+                setReview(null);
+                setError("");
+              }}
+            />
             <textarea
               value={diff}
               onChange={(event) => {
@@ -194,7 +236,7 @@ export default function Home() {
               }}
               spellCheck={false}
               placeholder="Paste a git diff here..."
-              className="min-h-[520px] w-full resize-y rounded-md border border-zinc-300 bg-zinc-950 p-4 font-mono text-sm leading-6 text-zinc-100 outline-none transition placeholder:text-zinc-500 focus:border-zinc-500 focus:ring-4 focus:ring-zinc-200"
+              className="mt-4 min-h-[480px] w-full resize-y rounded-md border border-zinc-300 bg-zinc-950 p-4 font-mono text-sm leading-6 text-zinc-100 outline-none transition placeholder:text-zinc-500 focus:border-zinc-500 focus:ring-4 focus:ring-zinc-200"
             />
             <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
               <p className="text-sm text-zinc-500">
@@ -217,9 +259,60 @@ export default function Home() {
           </div>
         </div>
 
-        <ReviewPanel review={review} error={error} isLoading={isLoading} />
+        <ReviewPanel
+          review={review}
+          error={error}
+          isLoading={isLoading}
+          reviewMode={reviewMode}
+        />
       </section>
     </main>
+  );
+}
+
+function ReviewModeSelector({
+  selectedMode,
+  onSelect,
+}: {
+  selectedMode: ReviewMode;
+  onSelect: (mode: ReviewMode) => void;
+}) {
+  return (
+    <div>
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-sm font-semibold text-zinc-950">Review mode</h3>
+        <span className="text-xs font-medium text-zinc-500">
+          {reviewModeLabels[selectedMode]}
+        </span>
+      </div>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        {reviewModes.map((mode) => {
+          const isSelected = selectedMode === mode.value;
+
+          return (
+            <button
+              key={mode.value}
+              type="button"
+              onClick={() => onSelect(mode.value)}
+              className={`rounded-md border px-3 py-3 text-left transition ${
+                isSelected
+                  ? "border-zinc-950 bg-zinc-950 text-white"
+                  : "border-zinc-200 bg-zinc-50 text-zinc-700 hover:border-zinc-300 hover:bg-white"
+              }`}
+            >
+              <span className="block text-sm font-semibold">{mode.label}</span>
+              <span
+                className={`mt-1 block text-xs ${
+                  isSelected ? "text-zinc-300" : "text-zinc-500"
+                }`}
+              >
+                {mode.description}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -238,10 +331,12 @@ function ReviewPanel({
   review,
   error,
   isLoading,
+  reviewMode,
 }: {
   review: ReviewResponse | null;
   error: string;
   isLoading: boolean;
+  reviewMode: ReviewMode;
 }) {
   if (isLoading) {
     return (
@@ -283,9 +378,14 @@ function ReviewPanel({
               {review.summary}
             </h2>
           </div>
-          <Badge className={riskStyles[review.overallRisk]}>
-            {review.overallRisk} risk
-          </Badge>
+          <div className="flex flex-wrap justify-end gap-2">
+            <Badge className="border-zinc-200 bg-zinc-50 text-zinc-700">
+              {reviewModeLabels[reviewMode]} mode
+            </Badge>
+            <Badge className={riskStyles[review.overallRisk]}>
+              {review.overallRisk} risk
+            </Badge>
+          </div>
         </div>
         <div className="mt-5 grid gap-3 sm:grid-cols-2">
           <StatusTile

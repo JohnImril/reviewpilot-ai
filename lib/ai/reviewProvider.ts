@@ -1,5 +1,5 @@
-import type { ReviewResponse } from "@/lib/schemas/review";
+import type { ReviewMode, ReviewResponse } from "@/lib/schemas/review";
 
 export interface ReviewProvider {
-  reviewDiff(diff: string): Promise<ReviewResponse>;
+  reviewDiff(diff: string, mode: ReviewMode): Promise<ReviewResponse>;
 }
