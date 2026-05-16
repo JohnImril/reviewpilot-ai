@@ -2,6 +2,13 @@ import { z } from "zod";
 
 export const severitySchema = z.enum(["low", "medium", "high"]);
 
+export const reviewModeSchema = z.enum([
+  "general",
+  "react",
+  "typescript",
+  "performance",
+]);
+
 export const reviewIssueSchema = z.object({
   title: z.string().min(1),
   severity: severitySchema,
@@ -11,6 +18,7 @@ export const reviewIssueSchema = z.object({
 
 export const reviewRequestSchema = z.object({
   diff: z.string().trim().min(1, "A git diff is required.").max(120_000),
+  mode: reviewModeSchema.default("general"),
 });
 
 export const reviewResponseSchema = z.object({
@@ -24,6 +32,7 @@ export const reviewResponseSchema = z.object({
 });
 
 export type Severity = z.infer<typeof severitySchema>;
+export type ReviewMode = z.infer<typeof reviewModeSchema>;
 export type ReviewIssue = z.infer<typeof reviewIssueSchema>;
 export type ReviewRequest = z.infer<typeof reviewRequestSchema>;
 export type ReviewResponse = z.infer<typeof reviewResponseSchema>;

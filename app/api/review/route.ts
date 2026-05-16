@@ -9,8 +9,8 @@ const provider = new MockReviewProvider();
 export async function POST(request: Request) {
   try {
     const body: unknown = await request.json();
-    const { diff } = reviewRequestSchema.parse(body);
-    const review = await provider.reviewDiff(diff);
+    const { diff, mode } = reviewRequestSchema.parse(body);
+    const review = await provider.reviewDiff(diff, mode);
 
     return Response.json(reviewResponseSchema.parse(review));
   } catch (error) {
