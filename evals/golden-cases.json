@@ -1,0 +1,50 @@
+[
+	{
+		"id": "react-use-effect-dependencies",
+		"title": "React useEffect dependency risk",
+		"mode": "react",
+		"diff": "diff --git a/app/components/UserSearch.tsx b/app/components/UserSearch.tsx\nindex 8a2d4a1..7bd913c 100644\n--- a/app/components/UserSearch.tsx\n+++ b/app/components/UserSearch.tsx\n@@ -1,8 +1,17 @@\n import { useEffect, useState } from \"react\";\n \n export function UserSearch({ query }: { query: string }) {\n   const [results, setResults] = useState<string[]>([]);\n+  const [isLoading, setIsLoading] = useState(false);\n \n-    searchUsers(query).then(setResults);\n+  useEffect(() => {\n+    setIsLoading(true);\n+    fetch(\"/api/users?query=\" + query)\n+      .then((response) => response.json())\n+      .then((payload) => {\n+        setResults(payload.items);\n+        setIsLoading(false);\n+      });\n+  }, []);\n \n   return <ResultsList items={results} />;\n }",
+		"expectedFindings": {
+			"requiredIssueKeywords": ["useEffect", "Network request"],
+			"requiredSeverities": ["medium"],
+			"expectedRiskAtLeast": 30,
+			"expectedChangedFiles": ["app/components/UserSearch.tsx"]
+		}
+	},
+	{
+		"id": "typescript-any-weak-typing",
+		"title": "TypeScript any / weak typing risk",
+		"mode": "typescript",
+		"diff": "diff --git a/lib/services/reviewService.ts b/lib/services/reviewService.ts\nindex f11b620..c2b8519 100644\n--- a/lib/services/reviewService.ts\n+++ b/lib/services/reviewService.ts\n@@ -1,11 +1,20 @@\n type ReviewPayload = {\n   id: string;\n   score: number;\n };\n \n-export async function loadReview(id: string): Promise<ReviewPayload> {\n+export async function loadReview(id: string): Promise<any> {\n   const response = await fetch(\"/api/reviews/\" + id);\n-  if (!response.ok) throw new Error(\"Unable to load review\");\n-  return response.json();\n+  const payload: any = await response.json();\n+  return payload as ReviewPayload;\n }\n+\n+export function normalizeReview(input: any) {\n+  return {\n+    id: input.id,\n+    score: Number(input.score),\n+  };\n+}",
+		"expectedFindings": {
+			"requiredIssueKeywords": ["TypeScript", "any"],
+			"requiredSeverities": ["medium"],
+			"expectedRiskAtLeast": 34,
+			"expectedChangedFiles": ["lib/services/reviewService.ts"]
+		}
+	},
+	{
+		"id": "dangerous-html-security",
+		"title": "dangerouslySetInnerHTML security risk",
+		"mode": "general",
+		"diff": "diff --git a/app/security/SafeHtml.tsx b/app/security/SafeHtml.tsx\nindex 1234567..89abcde 100644\n--- a/app/security/SafeHtml.tsx\n+++ b/app/security/SafeHtml.tsx\n@@ -1,6 +1,10 @@\n export function SafeHtml({ html }: { html: string }) {\n+  // TODO: sanitize this before release\n+  console.log(\"rendering html\", html);\n   return (\n-    <div>{html}</div>\n+    <div dangerouslySetInnerHTML={{ __html: html }} />\n   );\n }",
+		"expectedFindings": {
+			"requiredIssueKeywords": ["cross-site scripting", "Clean up"],
+			"requiredSeverities": ["high", "low"],
+			"expectedRiskAtLeast": 65,
+			"expectedChangedFiles": ["app/security/SafeHtml.tsx"]
+		}
+	},
+	{
+		"id": "fetch-missing-error-handling",
+		"title": "fetch/axios missing error handling",
+		"mode": "general",
+		"diff": "diff --git a/app/components/ProfileLoader.tsx b/app/components/ProfileLoader.tsx\nindex 1111111..2222222 100644\n--- a/app/components/ProfileLoader.tsx\n+++ b/app/components/ProfileLoader.tsx\n@@ -1,7 +1,14 @@\n export function ProfileLoader({ userId }: { userId: string }) {\n+  async function loadProfile() {\n+    const response = await fetch(\"/api/users/\" + userId);\n+    const profile = await response.json();\n+    return profile;\n+  }\n+\n   return (\n     <button type=\"button\">\n       Load profile\n     </button>\n   );\n }",
+		"expectedFindings": {
+			"requiredIssueKeywords": ["Network request", "failure handling"],
+			"requiredSeverities": ["medium"],
+			"expectedRiskAtLeast": 20,
+			"expectedChangedFiles": ["app/components/ProfileLoader.tsx"]
+		}
+	}
+]
