@@ -1,574 +1,549 @@
 import type {
-  ReviewMode,
-  ReviewIssue,
-  ReviewResponse,
-  Severity,
+	ChangedFileSummary,
+	ReviewIssue,
+	ReviewMode,
+	ReviewResponse,
+	RiskFactor,
+	Severity,
 } from "@/lib/schemas/review";
+import {
+	type ParsedDiffFile,
+	type ParsedDiffLine,
+	parseDiff,
+} from "@/lib/diff/parseDiff";
 import type { ReviewProvider } from "./reviewProvider";
 
 type Finding = ReviewIssue & { category: "bug" | "refactor" };
 
 const modeLabels: Record<ReviewMode, string> = {
-  general: "General",
-  react: "React",
-  typescript: "TypeScript",
-  performance: "Frontend Performance",
+	general: "General",
+	react: "React",
+	typescript: "TypeScript",
+	performance: "Frontend Performance",
 };
 
-export class MockReviewProvider implements ReviewProvider {
-  async reviewDiff(diff: string, mode: ReviewMode): Promise<ReviewResponse> {
-    const normalized = diff.toLowerCase();
-    const changedLines = countChangedLines(diff);
-    const touchedFiles = countTouchedFiles(diff);
-    const addedLines = getAddedLines(diff);
-    const findings: Finding[] = [];
-    const testSuggestions = new Set<string>();
+export class MockAIProvider implements ReviewProvider {
+	async reviewDiff(diff: string, mode: ReviewMode): Promise<ReviewResponse> {
+		const parsedDiff = parseDiff(diff);
+		const findings: Finding[] = [];
+		const testSuggestions = new Set<string>();
 
-    applyBaseHeuristics({
-      diff,
-      normalized,
-      changedLines,
-      findings,
-      testSuggestions,
-    });
-    applyModeHeuristics({
-      mode,
-      diff,
-      normalized,
-      addedLines,
-      findings,
-      testSuggestions,
-    });
+		for (const file of parsedDiff.files) {
+			applyFileHeuristics({ file, findings, testSuggestions });
+			applyLineHeuristics({ file, mode, findings, testSuggestions });
+		}
 
-    testSuggestions.add(
-      "Add or update tests for the primary user-visible behavior changed by this diff.",
-    );
+		testSuggestions.add(
+			"Add or update tests for the primary user-visible behavior changed by this diff.",
+		);
 
-    const possibleBugs = findings
-      .filter((finding) => finding.category === "bug")
-      .map(stripCategory);
-    const refactoringSuggestions = findings
-      .filter((finding) => finding.category === "refactor")
-      .map(stripCategory);
-    const overallRisk = determineRisk(findings, changedLines);
+		const changedFiles = buildChangedFiles(parsedDiff.files, findings);
+		const possibleBugs = findings
+			.filter((finding) => finding.category === "bug")
+			.map(stripCategory);
+		const refactoringSuggestions = findings
+			.filter((finding) => finding.category === "refactor")
+			.map(stripCategory);
+		const riskFactors = buildRiskFactors(parsedDiff.files, findings);
+		const riskScore = calculateRiskScore(riskFactors);
+		const overallRisk = determineRiskFromScore(riskScore);
 
-    return {
-      summary: buildSummary({
-        mode,
-        changedLines,
-        touchedFiles,
-        bugCount: possibleBugs.length,
-        refactorCount: refactoringSuggestions.length,
-        overallRisk,
-      }),
-      overallRisk,
-      possibleBugs,
-      refactoringSuggestions,
-      testSuggestions: Array.from(testSuggestions),
-      mergeRecommendation: determineRecommendation(overallRisk, findings),
-      confidence: determineConfidence(diff, findings, mode),
-    };
-  }
+		return {
+			summary: buildSummary({
+				mode,
+				changedFiles,
+				bugCount: possibleBugs.length,
+				refactorCount: refactoringSuggestions.length,
+				overallRisk,
+				riskScore,
+			}),
+			overallRisk,
+			riskScore,
+			riskFactors,
+			changedFiles,
+			possibleBugs,
+			refactoringSuggestions,
+			testSuggestions: Array.from(testSuggestions),
+			mergeRecommendation: determineRecommendation(overallRisk, findings),
+			confidence: determineConfidence(diff, findings, mode, changedFiles),
+		};
+	}
 }
 
-function applyBaseHeuristics({
-  diff,
-  normalized,
-  changedLines,
-  findings,
-  testSuggestions,
+function applyFileHeuristics({
+	file,
+	findings,
+	testSuggestions,
 }: {
-  diff: string;
-  normalized: string;
-  changedLines: number;
-  findings: Finding[];
-  testSuggestions: Set<string>;
+	file: ParsedDiffFile;
+	findings: Finding[];
+	testSuggestions: Set<string>;
 }) {
-  if (normalized.includes("localstorage")) {
-    findings.push({
-      category: "bug",
-      title: "Guard browser-only persistence",
-      severity: "medium",
-      description:
-        "The change reads or writes localStorage. In a server-rendered app this must only run in the browser and should handle malformed stored values.",
-      suggestedFix:
-        "Wrap localStorage access in client-only code, check typeof window before access, and handle JSON parse failures gracefully.",
-    });
-    testSuggestions.add(
-      "Cover the persistence path with tests for missing, valid, and malformed localStorage values.",
-    );
-  }
+	if (isPackageFile(file.newPath) && file.additions + file.deletions > 0) {
+		findings.push({
+			category: "refactor",
+			title: "Review dependency or script changes",
+			severity: "medium",
+			location: {
+				filePath: file.newPath,
+				codeSnippet: "package.json changed",
+			},
+			description:
+				"This pull request changes package metadata. Dependency, script, or engine changes can affect build behavior and deployment reproducibility.",
+			suggestedFix:
+				"Verify lockfile changes, package provenance, version ranges, and CI build output before merging.",
+		});
+		testSuggestions.add(
+			"Run install, lint, and production build checks after dependency changes.",
+		);
+	}
 
-  if (/\bdangerouslysetinnerhtml\b/i.test(diff)) {
-    findings.push({
-      category: "bug",
-      title: "Potential cross-site scripting risk",
-      severity: "high",
-      description:
-        "The diff introduces dangerouslySetInnerHTML, which can expose users to script injection if the HTML is not sanitized upstream.",
-      suggestedFix:
-        "Avoid raw HTML when possible. If it is required, sanitize with a trusted library and document the trusted input boundary.",
-    });
-    testSuggestions.add(
-      "Add a security-focused test or fixture that proves unsafe HTML is sanitized before rendering.",
-    );
-  }
+	if (isSensitivePath(file.newPath)) {
+		testSuggestions.add(
+			`Add focused regression coverage for sensitive changes in ${file.newPath}.`,
+		);
+	}
 
-  if (/\b(fetch|axios)\b/i.test(diff)) {
-    findings.push({
-      category: "bug",
-      title: "Network request needs failure handling",
-      severity: "medium",
-      description:
-        "The changed code performs an HTTP request. The diff should account for non-2xx responses, timeouts, and loading or retry states.",
-      suggestedFix:
-        "Check response status, catch request errors, expose user-friendly failure UI, and avoid leaving loading state active after failures.",
-    });
-    testSuggestions.add(
-      "Mock failed and successful network responses to verify loading, success, and error states.",
-    );
-  }
-
-  if (/\b(todo|console\.log)\b/i.test(diff)) {
-    findings.push({
-      category: "refactor",
-      title: "Clean up debug or placeholder code",
-      severity: "low",
-      description:
-        "The diff includes TODO markers or console logging that can create noisy production output or leave incomplete work ambiguous.",
-      suggestedFix:
-        "Remove console logging, convert TODOs into tracked issues, or replace placeholders with the intended implementation before merge.",
-    });
-  }
-
-  if (changedLines > 120) {
-    findings.push({
-      category: "refactor",
-      title: "Large diff increases review risk",
-      severity: "medium",
-      description:
-        "This pull request changes many lines, which makes missed regressions more likely and increases the value of focused tests.",
-      suggestedFix:
-        "Consider splitting unrelated changes and call out the highest-risk files in the pull request description.",
-    });
-    testSuggestions.add(
-      "Run focused regression tests around the files with the largest number of changed lines.",
-    );
-  }
+	if (file.additions > 80) {
+		findings.push({
+			category: "refactor",
+			title: "Large file change increases review risk",
+			severity: "medium",
+			location: {
+				filePath: file.newPath,
+			},
+			description:
+				"This file has a large number of added lines, which raises the chance that behavior changes are hard to review in one pass.",
+			suggestedFix:
+				"Split unrelated changes or summarize the key behavior changes in the pull request description.",
+		});
+	}
 }
 
-function applyModeHeuristics({
-  mode,
-  diff,
-  normalized,
-  addedLines,
-  findings,
-  testSuggestions,
+function applyLineHeuristics({
+	file,
+	mode,
+	findings,
+	testSuggestions,
 }: {
-  mode: ReviewMode;
-  diff: string;
-  normalized: string;
-  addedLines: string[];
-  findings: Finding[];
-  testSuggestions: Set<string>;
+	file: ParsedDiffFile;
+	mode: ReviewMode;
+	findings: Finding[];
+	testSuggestions: Set<string>;
 }) {
-  if (mode === "general") {
-    applyGeneralHeuristics({ normalized, findings, testSuggestions });
-    return;
-  }
+	for (const hunk of file.hunks) {
+		hunk.lines.forEach((line, lineIndex) => {
+			if (line.type !== "add") return;
 
-  if (mode === "react") {
-    applyReactHeuristics({
-      diff,
-      normalized,
-      addedLines,
-      findings,
-      testSuggestions,
-    });
-    return;
-  }
+			const content = line.content;
+			const normalized = content.toLowerCase();
+			const location = buildLocation(file, line);
 
-  if (mode === "typescript") {
-    applyTypeScriptHeuristics({ diff, normalized, findings, testSuggestions });
-    return;
-  }
+			if (/\buseeffect\b/.test(normalized)) {
+				findings.push({
+					category: "bug",
+					title: "Verify useEffect dependencies",
+					severity: mode === "react" ? "medium" : "low",
+					location,
+					description:
+						"This added effect should be checked for stale closures, incomplete dependencies, and repeated side effects.",
+					suggestedFix:
+						"Confirm every value read inside the effect is represented in the dependency array or intentionally stable.",
+				});
+				testSuggestions.add(
+					"Add a React component test that verifies effects respond to changed inputs without unnecessary reruns.",
+				);
+			}
 
-  if (mode === "performance") {
-    applyPerformanceHeuristics({
-      diff,
-      normalized,
-      addedLines,
-      findings,
-      testSuggestions,
-    });
-  }
+			if (/\bany\b/.test(normalized)) {
+				findings.push({
+					category: "refactor",
+					title: "Replace weak TypeScript typing",
+					severity: mode === "typescript" ? "medium" : "low",
+					location,
+					description:
+						"The added line uses any, which weakens compile-time feedback and can hide incorrect assumptions about runtime data.",
+					suggestedFix:
+						"Replace any with an explicit type, unknown plus narrowing, a type guard, or a Zod-inferred boundary type.",
+				});
+				testSuggestions.add(
+					"Add type-level or runtime schema coverage for values currently represented as any.",
+				);
+			}
+
+			if (
+				/\b(fetch|axios)\b/.test(normalized) &&
+				!hasNearbyErrorHandling(hunk.lines, lineIndex)
+			) {
+				findings.push({
+					category: "bug",
+					title: "Network request needs failure handling",
+					severity: "medium",
+					location,
+					description:
+						"This request is added without nearby error handling. Non-2xx responses, rejected promises, or malformed payloads could leave the UI in an incorrect state.",
+					suggestedFix:
+						"Add try/catch, check response status, and expose loading and failure states close to the request flow.",
+				});
+				testSuggestions.add(
+					"Mock successful and failed network responses to verify loading, success, and error states.",
+				);
+			}
+
+			if (/\bdangerouslysetinnerhtml\b/.test(normalized)) {
+				findings.push({
+					category: "bug",
+					title: "Potential cross-site scripting risk",
+					severity: "high",
+					location,
+					description:
+						"The added rendering path uses dangerouslySetInnerHTML. Unsanitized HTML can expose users to script injection.",
+					suggestedFix:
+						"Avoid raw HTML when possible. If HTML is required, sanitize it at a trusted boundary and document the input source.",
+				});
+				testSuggestions.add(
+					"Add a security-focused test proving unsafe HTML is sanitized before rendering.",
+				);
+			}
+
+			if (/\bconsole\.log\b|\btodo\b/i.test(content)) {
+				findings.push({
+					category: "refactor",
+					title: "Clean up debug or placeholder code",
+					severity: "low",
+					location,
+					description:
+						"Debug logging and TODO markers can create noisy production output or leave incomplete work ambiguous.",
+					suggestedFix:
+						"Remove console logging and convert TODOs into tracked work before merge.",
+				});
+			}
+
+			if (
+				mode === "performance" &&
+				/\w+=\{(\{|\(\)\s*=>|function\b)/.test(content)
+			) {
+				findings.push({
+					category: "refactor",
+					title: "Inline props may trigger avoidable renders",
+					severity: "medium",
+					location,
+					description:
+						"This added prop creates a new object or function reference during render and can defeat memoized child components.",
+					suggestedFix:
+						"Move stable objects outside the component, pass primitives, or memoize callbacks when reference equality matters.",
+				});
+			}
+
+			if (
+				mode === "performance" &&
+				/\.(filter|sort|reduce)\s*\(/.test(content)
+			) {
+				findings.push({
+					category: "refactor",
+					title: "Expensive array work may run during render",
+					severity: "medium",
+					location,
+					description:
+						"Filtering, sorting, or reducing inside render can become expensive for large datasets and repeated renders.",
+					suggestedFix:
+						"Memoize the derived collection with clear dependencies or move the work to a selector/server boundary.",
+				});
+				testSuggestions.add(
+					"Add a regression test or profiling note for large input sizes around the transformed collection.",
+				);
+			}
+		});
+	}
 }
 
-function applyGeneralHeuristics({
-  normalized,
-  findings,
-  testSuggestions,
-}: {
-  normalized: string;
-  findings: Finding[];
-  testSuggestions: Set<string>;
-}) {
-  if (normalized.includes("useeffect")) {
-    findings.push({
-      category: "bug",
-      title: "Review React effect dependencies",
-      severity: "medium",
-      description:
-        "General mode found React effect changes. Effects are a common source of stale state, repeated requests, or missed updates when dependencies are incomplete.",
-      suggestedFix:
-        "Check the dependency array and add a focused component test for the conditions that should trigger the effect.",
-    });
-    testSuggestions.add(
-      "Add a React component test that verifies the effect reacts to changed inputs without running unnecessarily.",
-    );
-  }
-
-  if (/\bany\b/.test(normalized)) {
-    findings.push({
-      category: "refactor",
-      title: "Strengthen loose TypeScript types",
-      severity: "medium",
-      description:
-        "General mode found any, which can hide incorrect assumptions and reduce confidence in the reviewed change.",
-      suggestedFix:
-        "Replace any with explicit types, unknown plus narrowing, or schema-derived types at the boundary.",
-    });
-    testSuggestions.add(
-      "Add type-level or runtime schema coverage for the shape currently represented as any.",
-    );
-  }
+function buildChangedFiles(
+	files: ParsedDiffFile[],
+	findings: Finding[],
+): ChangedFileSummary[] {
+	return files.map((file) => ({
+		filePath: file.newPath,
+		language: file.language,
+		additions: file.additions,
+		deletions: file.deletions,
+		riskLevel: determineFileRisk(file, findings),
+	}));
 }
 
-function applyReactHeuristics({
-  diff,
-  normalized,
-  addedLines,
-  findings,
-  testSuggestions,
-}: {
-  diff: string;
-  normalized: string;
-  addedLines: string[];
-  findings: Finding[];
-  testSuggestions: Set<string>;
-}) {
-  if (normalized.includes("useeffect")) {
-    findings.push({
-      category: "bug",
-      title: "Verify useEffect dependency behavior",
-      severity: "medium",
-      description:
-        "React mode detected effect logic. Missing, stale, or unstable dependencies can cause repeated requests, stale state, or missed updates.",
-      suggestedFix:
-        "Review the dependency array, memoize callback inputs only when needed, and add a regression test for the effect trigger conditions.",
-    });
-    testSuggestions.add(
-      "Add a React component test that verifies the effect reacts to changed inputs without running unnecessarily.",
-    );
-  }
+function determineFileRisk(
+	file: ParsedDiffFile,
+	findings: Finding[],
+): Severity {
+	const fileFindings = findings.filter(
+		(finding) => finding.location?.filePath === file.newPath,
+	);
 
-  if (/\b(usememo|usecallback)\b/i.test(diff)) {
-    findings.push({
-      category: "refactor",
-      title: "Validate memoization value and dependencies",
-      severity: "medium",
-      description:
-        "React mode found useMemo or useCallback. Memoization can hide dependency bugs or add complexity when the cached value is cheap.",
-      suggestedFix:
-        "Keep memoization only for measured expensive work or stable referential contracts, and verify every captured value is listed as a dependency.",
-    });
-    testSuggestions.add(
-      "Cover memoized behavior with tests that change each dependency and assert the rendered output updates correctly.",
-    );
-  }
+	if (
+		fileFindings.some((finding) => finding.severity === "high") ||
+		(isSensitivePath(file.newPath) && file.additions > 20)
+	) {
+		return "high";
+	}
 
-  if (/\.\s*map\s*\(/.test(diff) && !/\bkey\s*=/.test(diff)) {
-    findings.push({
-      category: "bug",
-      title: "Mapped JSX may be missing stable keys",
-      severity: "medium",
-      description:
-        "React mode detected array rendering without an obvious key prop in the diff. Missing keys can cause incorrect DOM reuse and state leakage between rows.",
-      suggestedFix:
-        "Add a stable key based on item identity instead of array index whenever the list can reorder, insert, or delete items.",
-    });
-    testSuggestions.add(
-      "Add a rendering test for list updates so reordered or removed rows keep the correct content and state.",
-    );
-  }
+	if (
+		fileFindings.some((finding) => finding.severity === "medium") ||
+		file.additions > 80 ||
+		isPackageFile(file.newPath) ||
+		isSensitivePath(file.newPath)
+	) {
+		return "medium";
+	}
 
-  if (hasPropDrillingSigns(addedLines)) {
-    findings.push({
-      category: "refactor",
-      title: "Possible prop drilling introduced",
-      severity: "low",
-      description:
-        "React mode found a component receiving many added props. This can make intermediate components harder to maintain when they only forward data downward.",
-      suggestedFix:
-        "Group related props into a typed object, colocate state closer to consumers, or introduce context only when several branches need the same data.",
-    });
-  }
+	return "low";
 }
 
-function applyTypeScriptHeuristics({
-  diff,
-  normalized,
-  findings,
-  testSuggestions,
-}: {
-  diff: string;
-  normalized: string;
-  findings: Finding[];
-  testSuggestions: Set<string>;
-}) {
-  if (/\bany\b/.test(normalized)) {
-    findings.push({
-      category: "refactor",
-      title: "Replace weak TypeScript types",
-      severity: "medium",
-      description:
-        "TypeScript mode found any, which weakens compile-time guarantees and can hide incorrect data assumptions in review-sensitive code.",
-      suggestedFix:
-        "Introduce explicit interfaces, discriminated unions, unknown with narrowing, or Zod-inferred types for values crossing this boundary.",
-    });
-    testSuggestions.add(
-      "Add type-level or runtime schema coverage for the shape currently represented as any.",
-    );
-  }
-
-  if (/\bas\s+[A-Za-z_{]/.test(diff)) {
-    findings.push({
-      category: "refactor",
-      title: "Type assertion may bypass safe narrowing",
-      severity: "medium",
-      description:
-        "TypeScript mode detected an as assertion. Assertions can silence mismatches between runtime data and the declared type.",
-      suggestedFix:
-        "Prefer control-flow narrowing, schema parsing, type guards, or the satisfies operator when the value shape can be checked safely.",
-    });
-  }
-
-  if (/@ts-ignore/.test(diff)) {
-    findings.push({
-      category: "bug",
-      title: "ts-ignore suppresses compiler feedback",
-      severity: "high",
-      description:
-        "TypeScript mode found @ts-ignore. Suppressing the compiler can hide real type errors and make future refactors less safe.",
-      suggestedFix:
-        "Remove the suppression by fixing the type mismatch, or use @ts-expect-error with a narrow explanation when the exception is intentional.",
-    });
-    testSuggestions.add(
-      "Add coverage around the suppressed branch before replacing the directive with a safer type model.",
-    );
-  }
-
-  if (
-    /\b(fetch|axios)\b/i.test(diff) &&
-    !/(:\s*Promise<|interface\s+\w*Response|type\s+\w*Response|z\.)/i.test(diff)
-  ) {
-    findings.push({
-      category: "refactor",
-      title: "API response shape is not explicit",
-      severity: "medium",
-      description:
-        "TypeScript mode found a network call without an obvious response type or runtime schema. The payload may be used with assumptions the compiler cannot verify.",
-      suggestedFix:
-        "Define a response type, parse unknown JSON through a schema, and keep the typed boundary close to the request helper.",
-    });
-  }
+function buildLocation(
+	file: ParsedDiffFile,
+	line: ParsedDiffLine,
+): ReviewIssue["location"] {
+	return {
+		filePath: file.newPath,
+		lineNumber: line.newLineNumber ?? undefined,
+		codeSnippet: line.content.trim() || line.content,
+	};
 }
 
-function applyPerformanceHeuristics({
-  diff,
-  normalized,
-  addedLines,
-  findings,
-  testSuggestions,
-}: {
-  diff: string;
-  normalized: string;
-  addedLines: string[];
-  findings: Finding[];
-  testSuggestions: Set<string>;
-}) {
-  if (addedLines.some((line) => /\w+=\{(\{|\(\)\s*=>|function\b)/.test(line))) {
-    findings.push({
-      category: "refactor",
-      title: "Inline props may trigger avoidable renders",
-      severity: "medium",
-      description:
-        "Frontend Performance mode found inline object or function props. These create new references on every render and can defeat memoized children.",
-      suggestedFix:
-        "Move stable objects outside the component, memoize callbacks when children rely on reference equality, or pass primitive props where practical.",
-    });
-  }
+function hasNearbyErrorHandling(lines: ParsedDiffLine[], lineIndex: number) {
+	const nearbyAddedLines = lines
+		.slice(Math.max(0, lineIndex - 4), lineIndex + 5)
+		.filter((line) => line.type === "add")
+		.map((line) => line.content.toLowerCase());
 
-  if (addedLines.some((line) => /\.(filter|sort|reduce)\s*\(/.test(line))) {
-    findings.push({
-      category: "refactor",
-      title: "Expensive array work may run during render",
-      severity: "medium",
-      description:
-        "Frontend Performance mode detected filtering, sorting, or reducing in changed lines. Re-running expensive work on every render can slow large datasets.",
-      suggestedFix:
-        "Precompute on the server, memoize based on stable dependencies, or move the work into a selector with clear invalidation rules.",
-    });
-    testSuggestions.add(
-      "Add a regression test or profiling note for large input sizes around the transformed collection.",
-    );
-  }
-
-  if (
-    /\.\s*map\s*\(/.test(diff) &&
-    (countChangedLines(diff) > 80 || /items|rows|results|list/i.test(diff))
-  ) {
-    findings.push({
-      category: "refactor",
-      title: "Large mapped lists may need virtualization",
-      severity: "medium",
-      description:
-        "Frontend Performance mode found list rendering that may grow with user data. Rendering every row can hurt interaction latency for large collections.",
-      suggestedFix:
-        "Use pagination, windowing, or virtualization for large lists, and keep row components lightweight.",
-    });
-  }
-
-  if (
-    normalized.includes("usestate") &&
-    (normalized.includes("useeffect") ||
-      /\bderived|selected|filtered|sorted\b/i.test(diff))
-  ) {
-    findings.push({
-      category: "refactor",
-      title: "Derived state may be unnecessary",
-      severity: "low",
-      description:
-        "Frontend Performance mode found state patterns that may duplicate values derivable from props or existing state. Duplicated derived state can cause extra renders and stale UI.",
-      suggestedFix:
-        "Compute derived values during render or with useMemo when the calculation is expensive and dependencies are clear.",
-    });
-  }
-}
-
-function getAddedLines(diff: string) {
-  return diff
-    .split("\n")
-    .filter((line) => line.startsWith("+") && !line.startsWith("+++"))
-    .map((line) => line.slice(1).trim());
-}
-
-function hasPropDrillingSigns(addedLines: string[]) {
-  const componentSignature = addedLines.find((line) =>
-    /(function|const)\s+[A-Z]\w*|=>\s*\(/.test(line),
-  );
-
-  if (!componentSignature) return false;
-
-  const propMatches = componentSignature.match(/\b\w+\??:/g) ?? [];
-  const destructuredProps = componentSignature.match(/\{([^}]+)\}/)?.[1] ?? "";
-  const propCount = Math.max(
-    propMatches.length,
-    destructuredProps.split(",").filter(Boolean).length,
-  );
-
-  return propCount >= 5;
+	return nearbyAddedLines.some((line) =>
+		/\b(try|catch|finally|response\.ok|throw new error|error state|seterror)\b/.test(
+			line,
+		),
+	);
 }
 
 function stripCategory(finding: Finding): ReviewIssue {
-  const { title, severity, description, suggestedFix } = finding;
+	const { title, severity, location, description, suggestedFix } = finding;
 
-  return { title, severity, description, suggestedFix };
-}
-
-function countChangedLines(diff: string) {
-  return diff
-    .split("\n")
-    .filter((line) => /^[+-](?![+-]{2})/.test(line.trimStart())).length;
-}
-
-function countTouchedFiles(diff: string) {
-  const files = diff
-    .split("\n")
-    .filter((line) => line.startsWith("diff --git")).length;
-
-  return files || 1;
-}
-
-function determineRisk(findings: Finding[], changedLines: number): Severity {
-  if (
-    findings.some((finding) => finding.severity === "high") ||
-    changedLines > 220
-  ) {
-    return "high";
-  }
-
-  if (
-    findings.some((finding) => finding.severity === "medium") ||
-    changedLines > 80
-  ) {
-    return "medium";
-  }
-
-  return "low";
+	return { title, severity, location, description, suggestedFix };
 }
 
 function determineRecommendation(
-  overallRisk: Severity,
-  findings: Finding[],
+	overallRisk: Severity,
+	findings: Finding[],
 ): ReviewResponse["mergeRecommendation"] {
-  if (
-    overallRisk === "high" ||
-    findings.some((finding) => finding.severity === "high")
-  ) {
-    return "reject";
-  }
+	if (
+		overallRisk === "high" ||
+		findings.some((finding) => finding.severity === "high")
+	) {
+		return "reject";
+	}
 
-  if (
-    overallRisk === "medium" ||
-    findings.some((finding) => finding.severity === "medium")
-  ) {
-    return "needs_changes";
-  }
+	if (
+		overallRisk === "medium" ||
+		findings.some((finding) => finding.severity === "medium")
+	) {
+		return "needs_changes";
+	}
 
-  return "approve";
+	return "approve";
+}
+
+function buildRiskFactors(
+	files: ParsedDiffFile[],
+	findings: Finding[],
+): RiskFactor[] {
+	const factors: RiskFactor[] = [];
+	const mediumIssues = findings.filter(
+		(finding) => finding.severity === "medium",
+	).length;
+	const highIssues = findings.filter(
+		(finding) => finding.severity === "high",
+	).length;
+	const packageFiles = files.filter(
+		(file) =>
+			isPackageFile(file.newPath) && file.additions + file.deletions > 0,
+	);
+	const sensitiveFiles = files.filter((file) =>
+		isSensitivePath(file.newPath),
+	);
+	const largeFiles = files.filter((file) => file.additions > 80);
+	const dangerousHtmlLines = countAddedLines(
+		files,
+		/\bdangerouslysetinnerhtml\b/i,
+	);
+	const weakTypeLines = countAddedLines(files, /\bany\b/i);
+	const cleanupLines = countAddedLines(files, /\bconsole\.log\b|\btodo\b/i);
+	const missingErrorHandling = findings.filter((finding) =>
+		finding.title.includes("Network request"),
+	).length;
+
+	if (mediumIssues > 0) {
+		factors.push({
+			label: "Medium-severity findings",
+			impact: mediumIssues * 10,
+			severity: "medium",
+			reason: `${mediumIssues} medium review finding${mediumIssues === 1 ? "" : "s"} add correctness or maintainability risk.`,
+		});
+	}
+
+	if (highIssues > 0) {
+		factors.push({
+			label: "High-severity findings",
+			impact: highIssues * 20,
+			severity: "high",
+			reason: `${highIssues} high-severity finding${highIssues === 1 ? "" : "s"} indicate security or production-impacting risk.`,
+		});
+	}
+
+	if (packageFiles.length > 0) {
+		factors.push({
+			label: "Dependency or script changes",
+			impact: packageFiles.length * 15,
+			severity: "medium",
+			reason: "package.json changes can affect dependency resolution, scripts, builds, and deployment behavior.",
+		});
+	}
+
+	if (sensitiveFiles.length > 0) {
+		factors.push({
+			label: "Sensitive file paths",
+			impact: sensitiveFiles.length * 15,
+			severity: "medium",
+			reason: "Auth, security, config, payment, token, or session paths have a higher blast radius when behavior changes.",
+		});
+	}
+
+	if (largeFiles.length > 0) {
+		factors.push({
+			label: "Large changed files",
+			impact: largeFiles.length * 10,
+			severity: "medium",
+			reason: "Files with many additions are harder to review completely and are more likely to hide behavior changes.",
+		});
+	}
+
+	if (dangerousHtmlLines > 0) {
+		factors.push({
+			label: "Raw HTML rendering",
+			impact: dangerousHtmlLines * 20,
+			severity: "high",
+			reason: "dangerouslySetInnerHTML can expose users to cross-site scripting unless input is sanitized at a trusted boundary.",
+		});
+	}
+
+	if (missingErrorHandling > 0) {
+		factors.push({
+			label: "Missing network error handling",
+			impact: missingErrorHandling * 10,
+			severity: "medium",
+			reason: "fetch or axios calls without nearby failure handling can leave loading, error, or data state inconsistent.",
+		});
+	}
+
+	if (weakTypeLines > 0) {
+		factors.push({
+			label: "Weak TypeScript typing",
+			impact: weakTypeLines * 8,
+			severity: "low",
+			reason: "Added any usage weakens compile-time checks and can hide incorrect assumptions about runtime data.",
+		});
+	}
+
+	if (cleanupLines > 0) {
+		factors.push({
+			label: "Cleanup markers",
+			impact: cleanupLines * 5,
+			severity: "low",
+			reason: "console.log and TODO additions can leave noisy output or ambiguous unfinished work in the branch.",
+		});
+	}
+
+	return factors;
+}
+
+function calculateRiskScore(factors: RiskFactor[]) {
+	return Math.min(
+		factors.reduce((total, factor) => total + factor.impact, 0),
+		100,
+	);
+}
+
+function determineRiskFromScore(score: number): Severity {
+	if (score >= 70) return "high";
+	if (score >= 35) return "medium";
+	return "low";
+}
+
+function countAddedLines(files: ParsedDiffFile[], pattern: RegExp) {
+	return files.reduce((count, file) => {
+		const fileCount = file.hunks.reduce((hunkCount, hunk) => {
+			return (
+				hunkCount +
+				hunk.lines.filter(
+					(line) => line.type === "add" && pattern.test(line.content),
+				).length
+			);
+		}, 0);
+
+		return count + fileCount;
+	}, 0);
 }
 
 function determineConfidence(
-  diff: string,
-  findings: Finding[],
-  mode: ReviewMode,
+	diff: string,
+	findings: Finding[],
+	mode: ReviewMode,
+	changedFiles: ChangedFileSummary[],
 ) {
-  const base = diff.includes("diff --git") ? 0.76 : 0.64;
-  const modeBoost = mode === "general" ? 0 : 0.04;
-  const findingBoost = Math.min(findings.length * 0.03, 0.15);
-  return Number(Math.min(base + modeBoost + findingBoost, 0.93).toFixed(2));
+	const base = diff.includes("diff --git") ? 0.78 : 0.62;
+	const modeBoost = mode === "general" ? 0 : 0.03;
+	const structureBoost = Math.min(changedFiles.length * 0.02, 0.08);
+	const findingBoost = Math.min(findings.length * 0.025, 0.12);
+	return Number(
+		Math.min(
+			base + modeBoost + structureBoost + findingBoost,
+			0.94,
+		).toFixed(2),
+	);
 }
 
 function buildSummary({
-  mode,
-  changedLines,
-  touchedFiles,
-  bugCount,
-  refactorCount,
-  overallRisk,
+	mode,
+	changedFiles,
+	bugCount,
+	refactorCount,
+	overallRisk,
+	riskScore,
 }: {
-  mode: ReviewMode;
-  changedLines: number;
-  touchedFiles: number;
-  bugCount: number;
-  refactorCount: number;
-  overallRisk: Severity;
+	mode: ReviewMode;
+	changedFiles: ChangedFileSummary[];
+	bugCount: number;
+	refactorCount: number;
+	overallRisk: Severity;
+	riskScore: number;
 }) {
-  const issueText =
-    bugCount + refactorCount === 0
-      ? "no major heuristic findings"
-      : `${bugCount} possible bug${bugCount === 1 ? "" : "s"} and ${refactorCount} refactoring suggestion${refactorCount === 1 ? "" : "s"}`;
+	const additions = changedFiles.reduce(
+		(total, file) => total + file.additions,
+		0,
+	);
+	const deletions = changedFiles.reduce(
+		(total, file) => total + file.deletions,
+		0,
+	);
+	const issueText =
+		bugCount + refactorCount === 0
+			? "no major location-aware findings"
+			: `${bugCount} possible bug${bugCount === 1 ? "" : "s"} and ${refactorCount} refactoring suggestion${refactorCount === 1 ? "" : "s"}`;
 
-  return `ReviewPilot inspected ${changedLines} changed line${changedLines === 1 ? "" : "s"} across ${touchedFiles} file${touchedFiles === 1 ? "" : "s"} in ${modeLabels[mode]} mode and found ${issueText}. Overall risk is ${overallRisk}.`;
+	return `ReviewPilot inspected ${changedFiles.length} changed file${changedFiles.length === 1 ? "" : "s"} with ${additions} addition${additions === 1 ? "" : "s"} and ${deletions} deletion${deletions === 1 ? "" : "s"} in ${modeLabels[mode]} mode and found ${issueText}. Overall risk is ${overallRisk} with a ${riskScore}/100 score.`;
+}
+
+function isPackageFile(filePath: string) {
+	return /(^|\/)package\.json$/i.test(filePath);
+}
+
+function isSensitivePath(filePath: string) {
+	return /\b(auth|payment|billing|security|config|secret|token|session)\b/i.test(
+		filePath,
+	);
 }
