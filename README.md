@@ -130,7 +130,7 @@ Enable the real provider with environment variables:
 ```bash
 AI_PROVIDER=openai
 OPENAI_API_KEY=your_api_key
-OPENAI_MODEL=gpt-5.4-mini
+OPENAI_MODEL=your-model-name
 ```
 
 If `AI_PROVIDER` is missing or invalid, the provider factory falls back to the
@@ -223,7 +223,7 @@ More examples are documented in
 ## CI / Quality Checks
 
 GitHub Actions runs quality checks on pushes and pull requests targeting
-`main`. The CI workflow installs dependencies with `npm ci`, then runs the same
+`master`. The CI workflow installs dependencies with `npm ci`, then runs the same
 quality gates expected before release: format checking, linting, Vitest tests,
 mock AI evals, and a production build.
 
@@ -280,6 +280,7 @@ npm run test
 - Add authentication and saved review history.
 - Add GitHub pull request import and webhook support.
 - Add automated screenshot generation for release docs.
+- Add automated LLM evals against golden cases for real provider outputs.
 
 ## Release Checklist
 
