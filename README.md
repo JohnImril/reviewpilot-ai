@@ -11,6 +11,8 @@ requires no API keys or external services. The project is intentionally designed
 so a real LLM provider can be added later behind the same provider interface and
 validated response schema.
 
+Live demo: [reviewpilot-ai-lime.vercel.app](https://reviewpilot-ai-lime.vercel.app/)
+
 ## Problem / Solution
 
 Pull request review feedback is often inconsistent, hard to scan, or buried in
