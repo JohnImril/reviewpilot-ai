@@ -1,0 +1,13 @@
+{
+	"action": "opened",
+	"installation": { "id": 123456 },
+	"repository": {
+		"name": "reviewpilot-test",
+		"full_name": "example/reviewpilot-test",
+		"owner": { "login": "example" }
+	},
+	"pull_request": {
+		"number": 1,
+		"head": { "repo": { "fork": false } }
+	}
+}

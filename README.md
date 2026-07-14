@@ -2,7 +2,8 @@
 
 ReviewPilot AI is a portfolio-ready Pull Request review assistant built with
 Next.js, React, TypeScript, Tailwind CSS, and Zod. It turns a pasted git diff
-into structured code review feedback: pull request summary, changed-file risk,
+into structured code review feedback and can run the same pipeline from a
+GitHub App pull request webhook: pull request summary, changed-file risk,
 line-aware issues, explainable risk scoring, test suggestions, confidence, and
 merge recommendation.
 
@@ -44,6 +45,10 @@ prepared examples for live portfolio demos.
 - Load bundled example diffs from the dashboard.
 - Browse prepared reports on `/examples`.
 - Run entirely locally with `MockAIProvider`.
+- Install an MVP GitHub App that reviews `opened`, `reopened`, and `synchronize`
+  pull request events through installation-token authentication.
+- Create or update one structured marker comment per PR instead of duplicating
+  reports after each push.
 
 ## Review Modes
 
@@ -62,6 +67,11 @@ logic:
 - `app/page.tsx` renders the interactive diff analyzer.
 - `app/examples/page.tsx` renders prepared portfolio examples.
 - `app/api/review/route.ts` accepts review requests and returns validated JSON.
+- `lib/review/runReview.ts` is the shared application service used by manual and
+  GitHub-triggered reviews.
+- `app/api/github/webhook/route.ts` verifies and filters GitHub webhooks.
+- `lib/github/` contains GitHub App auth, a mockable REST client, orchestration,
+  delivery deduplication, and safe Markdown comment formatting.
 - `lib/schemas/review.ts` defines Zod request and response schemas.
 - `lib/diff/parseDiff.ts` parses unified diffs into files, hunks, and lines.
 - `lib/ai/reviewProvider.ts` defines the provider interface.
@@ -76,12 +86,24 @@ logic:
 See [docs/architecture.md](./docs/architecture.md) for the detailed
 request/response flow and future LLM integration path.
 
+```mermaid
+sequenceDiagram
+  GitHub->>Webhook: pull_request.synchronize
+  Webhook->>Webhook: Verify HMAC signature
+  Webhook->>GitHub API: Request installation token
+  Webhook->>GitHub API: Fetch pull request diff
+  Webhook->>ReviewProvider: Analyze diff
+  ReviewProvider-->>Webhook: Structured ReviewResult
+  Webhook->>GitHub API: Create or update PR comment
+```
+
 ## Pages
 
-| Route       | Purpose                          |
-| ----------- | -------------------------------- |
-| `/`         | Interactive diff analyzer.       |
-| `/examples` | Prepared example review reports. |
+| Route                | Purpose                                       |
+| -------------------- | --------------------------------------------- |
+| `/`                  | Interactive diff analyzer.                    |
+| `/examples`          | Prepared example review reports.              |
+| `/api/github/status` | Safe GitHub integration configuration status. |
 
 ## Tech Stack
 
@@ -117,6 +139,23 @@ npm run dev
 Open `http://localhost:3000`.
 
 Prepared examples are available at `http://localhost:3000/examples`.
+
+The committed `.env.example` includes all supported variables:
+
+```env
+AI_PROVIDER=mock
+OPENAI_API_KEY=
+OPENAI_MODEL=gpt-5.4-mini
+GITHUB_APP_ID=
+GITHUB_APP_PRIVATE_KEY=
+GITHUB_WEBHOOK_SECRET=
+GITHUB_MAX_DIFF_CHARS=100000
+```
+
+GitHub credentials are required only for the webhook integration. Read the
+step-by-step [GitHub App setup guide](./docs/github-app-setup.md) before adding
+them locally or in Vercel. Never commit the generated private key or webhook
+secret.
 
 ## AI Integration
 
@@ -208,17 +247,18 @@ More examples are documented in
 
 ## Scripts
 
-| Command                | Description                                 |
-| ---------------------- | ------------------------------------------- |
-| `npm run dev`          | Start the local development server.         |
-| `npm run build`        | Create a production build.                  |
-| `npm run start`        | Start the production server after building. |
-| `npm run lint`         | Run ESLint.                                 |
-| `npm run test`         | Run Vitest unit tests.                      |
-| `npm run test:watch`   | Run Vitest in watch mode.                   |
-| `npm run eval:mock`    | Run deterministic golden-case AI evals.     |
-| `npm run format`       | Format files with Prettier.                 |
-| `npm run format:check` | Check formatting without writing changes.   |
+| Command                       | Description                                 |
+| ----------------------------- | ------------------------------------------- |
+| `npm run dev`                 | Start the local development server.         |
+| `npm run build`               | Create a production build.                  |
+| `npm run start`               | Start the production server after building. |
+| `npm run lint`                | Run ESLint.                                 |
+| `npm run test`                | Run Vitest unit tests.                      |
+| `npm run test:watch`          | Run Vitest in watch mode.                   |
+| `npm run eval:mock`           | Run deterministic golden-case AI evals.     |
+| `npm run github:webhook:test` | Send a locally signed fixture webhook.      |
+| `npm run format`              | Format files with Prettier.                 |
+| `npm run format:check`        | Check formatting without writing changes.   |
 
 ## CI / Quality Checks
 
@@ -278,7 +318,10 @@ npm run test
 - Add streaming review progress for larger diffs.
 - Add repository-aware context ingestion for changed files.
 - Add authentication and saved review history.
-- Add GitHub pull request import and webhook support.
+- Move GitHub webhook work to a durable queue with a persistent delivery store.
+- Add Check Runs and optional inline annotations.
+- Add installation management and multi-tenant controls before claiming
+  production readiness.
 - Add automated screenshot generation for release docs.
 - Add automated LLM evals against golden cases for real provider outputs.
 
