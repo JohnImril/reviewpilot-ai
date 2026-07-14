@@ -33,7 +33,10 @@ describe("golden mock evals", () => {
 	const provider = new MockAIProvider();
 
 	it.each(goldenCases as GoldenCase[])("$id - $title", async (goldenCase) => {
-		const review = await provider.reviewDiff(goldenCase.diff, goldenCase.mode);
+		const review = await provider.reviewDiff(
+			goldenCase.diff,
+			goldenCase.mode,
+		);
 		const issues = [
 			...review.possibleBugs,
 			...review.refactoringSuggestions,

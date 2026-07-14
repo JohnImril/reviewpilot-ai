@@ -17,6 +17,41 @@ local heuristics or a future LLM service.
    `ReviewResultSchema`.
 8. The UI renders the response with the shared `ReviewResult` component.
 
+Both the manual route and GitHub webhook call `lib/review/runReview.ts`. This
+application service invokes the selected `ReviewProvider` and validates its
+result, so review behavior is not duplicated between transport layers.
+
+## GitHub App Flow
+
+```mermaid
+sequenceDiagram
+  GitHub->>Webhook: pull_request.synchronize
+  Webhook->>Webhook: Verify raw-body HMAC signature
+  Webhook->>GitHub API: Exchange App JWT for installation token
+  Webhook->>GitHub API: Fetch unified pull request diff
+  Webhook->>ReviewProvider: runReview(diff, general)
+  ReviewProvider-->>Webhook: Validated ReviewResponse
+  Webhook->>GitHub API: Create or update marker comment
+```
+
+The webhook route handles HTTP concerns only: required headers, signature,
+event filtering, payload schema validation, delivery deduplication, safe error
+mapping, and dependency construction. `processPullRequestEvent` orchestrates
+authentication, diff retrieval, shared review execution, Markdown formatting,
+and comment upsert through mockable interfaces.
+
+GitHub App authentication uses an RS256 JWT signed with the App private key and
+exchanges it for a short-lived installation token. The REST client requests the
+PR's ready-made unified diff rather than reconstructing it from file endpoints.
+Issue comments are explicitly paginated. An existing comment is editable only
+when it has the hidden ReviewPilot marker and GitHub reports that it was created
+via the configured App ID.
+
+The route uses the Node.js runtime for `node:crypto`. Webhook HMAC validation is
+performed over the exact raw UTF-8 request body and uses timing-safe comparison.
+The integration never logs payloads, diffs, private keys, secrets, API keys, or
+installation tokens.
+
 The `/examples` page reuses the same provider and `ReviewResult` component, but
 it renders prepared reports server-side for a static portfolio-friendly route.
 
