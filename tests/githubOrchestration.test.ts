@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { ReviewProvider } from "@/lib/ai/reviewProvider";
 import { MockAIProvider } from "@/lib/ai/mockReview";
 import { REVIEWPILOT_COMMENT_MARKER } from "@/lib/github/githubReviewComment";
+import { GitHubIntegrationError } from "@/lib/github/errors";
 import { processPullRequestEvent } from "@/lib/github/processPullRequestEvent";
 import type {
 	GitHubClient,
@@ -71,6 +72,34 @@ describe("GitHub pull request orchestration", () => {
 		expect(client.updated).toHaveLength(0);
 		expect(client.created).toHaveLength(1);
 	});
+
+	it.each([false, true])(
+		"preserves the original GitHubIntegrationError when %s comment fails",
+		async (update) => {
+			const client = new FakeGitHubClient(
+				reactUseEffectDiff,
+				update
+					? [comment(99, 123, `${REVIEWPILOT_COMMENT_MARKER}\nold`)]
+					: [],
+			);
+			const original = new GitHubIntegrationError(
+				"comment_publication_error",
+				"Unable to publish the ReviewPilot pull request comment (GitHub API 422).",
+				422,
+			);
+			if (update) {
+				client.updateIssueComment = vi.fn(async () => {
+					throw original;
+				});
+			} else {
+				client.createIssueComment = vi.fn(async () => {
+					throw original;
+				});
+			}
+
+			await expect(run(client)).rejects.toBe(original);
+		},
+	);
 
 	it("publishes an empty-diff notice without running the provider", async () => {
 		const provider = failingIfCalledProvider();

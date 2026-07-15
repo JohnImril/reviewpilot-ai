@@ -2,6 +2,7 @@ import { createHmac } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { handleGitHubWebhook } from "@/app/api/github/webhook/route";
 import { InMemoryDeliveryStore } from "@/lib/github/deliveryStore";
+import { GitHubIntegrationError } from "@/lib/github/errors";
 
 const secret = "webhook-test-secret";
 const validPayload = {
@@ -112,6 +113,46 @@ describe("GitHub webhook filtering and validation", () => {
 		});
 		expect(processPullRequest).toHaveBeenCalledOnce();
 	});
+
+	it.each([403, 404, 422])(
+		"returns a safe comment-publication response and logs GitHub %s diagnostics",
+		async (status) => {
+			const error = new GitHubIntegrationError(
+				"comment_publication_error",
+				`Unable to publish the ReviewPilot pull request comment (GitHub API ${status}).`,
+				status,
+				{
+					github: {
+						method: "PATCH",
+						path: "/repos/example/reviewpilot-ai/issues/comments/99",
+						responseStatus: status,
+						requestId: `request-${status}`,
+						acceptedPermissions: "issues=write",
+						githubMessage: `safe GitHub ${status}`,
+						operation: "update_comment",
+					},
+				},
+			);
+			processPullRequest.mockRejectedValueOnce(error);
+			const consoleSpy = vi
+				.spyOn(console, "error")
+				.mockImplementation(() => undefined);
+
+			const response = await send("pull_request", validPayload);
+
+			expect(response.status).toBe(status);
+			expect(await response.json()).toEqual({
+				status: "error",
+				category: "comment_publication_error",
+				message: `Unable to publish the ReviewPilot pull request comment (GitHub API ${status}).`,
+			});
+			expect(consoleSpy).toHaveBeenCalledWith(
+				"ReviewPilot GitHub API request failed",
+				error.github,
+			);
+			consoleSpy.mockRestore();
+		},
+	);
 
 	function send(
 		event: string,

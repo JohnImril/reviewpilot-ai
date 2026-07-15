@@ -1,4 +1,7 @@
-import { GitHubIntegrationError } from "@/lib/github/errors";
+import {
+	GitHubIntegrationError,
+	type GitHubApiOperation,
+} from "@/lib/github/errors";
 import type { GitHubClient, GitHubIssueComment } from "@/lib/github/types";
 
 const GITHUB_API_URL = "https://api.github.com";
@@ -50,6 +53,7 @@ export class GitHubRestClient implements GitHubClient {
 		await this.request(
 			`/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repo)}/issues/${input.issueNumber}/comments`,
 			{ method: "POST", body: JSON.stringify({ body: input.body }) },
+			"create_comment",
 		);
 	}
 
@@ -62,10 +66,15 @@ export class GitHubRestClient implements GitHubClient {
 		await this.request(
 			`/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repo)}/issues/comments/${input.commentId}`,
 			{ method: "PATCH", body: JSON.stringify({ body: input.body }) },
+			"update_comment",
 		);
 	}
 
-	private async request(path: string, init: RequestInit = {}) {
+	private async request(
+		path: string,
+		init: RequestInit = {},
+		operation?: GitHubApiOperation,
+	) {
 		let response: Response;
 		try {
 			response = await this.fetchImpl(`${GITHUB_API_URL}${path}`, {
@@ -87,18 +96,51 @@ export class GitHubRestClient implements GitHubClient {
 			);
 		}
 		if (!response.ok) {
+			const githubMessage = await readGitHubErrorMessage(response);
+			const method = init.method ?? "GET";
 			const rateLimited =
 				response.status === 429 ||
 				(response.status === 403 &&
 					response.headers.get("x-ratelimit-remaining") === "0");
 			throw new GitHubIntegrationError(
-				"github_api_error",
-				rateLimited
-					? "GitHub API rate limit prevented this review."
-					: `GitHub API request failed (${response.status}).`,
-				response.status === 404 ? 404 : 502,
+				operation ? "comment_publication_error" : "github_api_error",
+				operation
+					? `Unable to publish the ReviewPilot pull request comment (GitHub API ${response.status}).`
+					: rateLimited
+						? "GitHub API rate limit prevented this review."
+						: `GitHub API request failed (${response.status}).`,
+				operation
+					? response.status
+					: response.status === 404
+						? 404
+						: 502,
+				{
+					github: {
+						method,
+						path,
+						responseStatus: response.status,
+						requestId: response.headers.get("x-github-request-id"),
+						acceptedPermissions: response.headers.get(
+							"x-accepted-github-permissions",
+						),
+						githubMessage,
+						operation,
+					},
+				},
 			);
 		}
 		return response;
 	}
+}
+
+async function readGitHubErrorMessage(response: Response) {
+	try {
+		const body = (await response.clone().json()) as { message?: unknown };
+		if (typeof body.message === "string") {
+			return body.message.replace(/[\r\n\t]/g, " ").slice(0, 500);
+		}
+	} catch {
+		// GitHub error responses are normally JSON; never log an unparsed body.
+	}
+	return "GitHub API request failed.";
 }
