@@ -71,7 +71,7 @@ logic:
   GitHub-triggered reviews.
 - `app/api/github/webhook/route.ts` verifies and filters GitHub webhooks.
 - `lib/github/` contains GitHub App auth, a mockable REST client, orchestration,
-  delivery deduplication, and safe Markdown comment formatting.
+  optional persistent delivery deduplication, and safe Markdown comment formatting.
 - `lib/schemas/review.ts` defines Zod request and response schemas.
 - `lib/diff/parseDiff.ts` parses unified diffs into files, hunks, and lines.
 - `lib/ai/reviewProvider.ts` defines the provider interface.
@@ -150,6 +150,7 @@ GITHUB_APP_ID=
 GITHUB_APP_PRIVATE_KEY=
 GITHUB_WEBHOOK_SECRET=
 GITHUB_MAX_DIFF_CHARS=100000
+GITHUB_DELIVERY_STORE_PATH=.data/github-deliveries.json
 ```
 
 GitHub credentials are required only for the webhook integration. Read the
@@ -294,6 +295,15 @@ npm run eval:mock
 The eval script forces mock mode and never calls external APIs. Production AI
 integrations should be evaluated against representative cases like these, not
 only tested manually through the UI.
+
+Opt-in real-provider evals reuse those cases. Set `RUN_REAL_PROVIDER_EVALS=1`
+and `OPENAI_API_KEY`, then run `npm run eval:real`. They stay out of CI
+because they use network access and incur provider cost.
+
+For a long-lived Node deployment, `GITHUB_DELIVERY_STORE_PATH` enables the
+atomic file-backed delivery store so completed webhook IDs survive restarts.
+Mount that path on durable storage. Serverless or multi-instance deployments
+should replace the adapter with an external transactional queue/store.
 
 ## Testing
 
