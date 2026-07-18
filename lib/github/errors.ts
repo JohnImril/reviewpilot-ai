@@ -6,16 +6,31 @@ export type GitHubIntegrationErrorCategory =
 	| "review_provider_error"
 	| "comment_publication_error";
 
+export type GitHubApiOperation = "create_comment" | "update_comment";
+
+export type GitHubApiDiagnostics = {
+	method: string;
+	path: string;
+	responseStatus: number;
+	requestId: string | null;
+	acceptedPermissions: string | null;
+	githubMessage: string;
+	operation?: GitHubApiOperation;
+};
+
 export class GitHubIntegrationError extends Error {
 	constructor(
 		public readonly category: GitHubIntegrationErrorCategory,
 		message: string,
 		public readonly status: number,
-		options?: ErrorOptions,
+		options?: ErrorOptions & { github?: GitHubApiDiagnostics },
 	) {
 		super(message, options);
 		this.name = "GitHubIntegrationError";
+		this.github = options?.github;
 	}
+
+	public readonly github?: GitHubApiDiagnostics;
 }
 
 export function safeErrorMessage(error: unknown) {

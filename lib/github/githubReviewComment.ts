@@ -107,6 +107,7 @@ export async function upsertReviewComment(input: {
 		});
 		return "created" as const;
 	} catch (error) {
+		if (error instanceof GitHubIntegrationError) throw error;
 		throw new GitHubIntegrationError(
 			"comment_publication_error",
 			"Unable to publish the ReviewPilot pull request comment.",

@@ -5,6 +5,7 @@ import {
 	createGitHubAppJwt,
 	readGitHubAppCredentials,
 } from "@/lib/github/githubAppAuth";
+import { GitHubIntegrationError } from "@/lib/github/errors";
 import { GitHubRestClient } from "@/lib/github/githubClient";
 
 describe("GitHub App authentication", () => {
@@ -105,4 +106,57 @@ describe("GitHub REST client", () => {
 		expect(fetchMock).toHaveBeenCalledTimes(2);
 		expect(fetchMock.mock.calls[1][0]).toContain("page=2");
 	});
+
+	it.each([403, 404, 422])(
+		"preserves safe create-comment diagnostics for GitHub %s",
+		async (status) => {
+			const fetchMock = vi.fn(async () =>
+				Response.json(
+					{
+						message: `safe GitHub ${status}`,
+						errors: [{ secret: "hidden" }],
+					},
+					{
+						status,
+						headers: {
+							"x-github-request-id": `request-${status}`,
+							"x-accepted-github-permissions": "issues=write",
+						},
+					},
+				),
+			);
+			const client = new GitHubRestClient(
+				"installation-secret",
+				fetchMock as typeof fetch,
+			);
+
+			const promise = client.createIssueComment({
+				owner: "example",
+				repo: "repo",
+				issueNumber: 12,
+				body: "full private comment body",
+			});
+			const error = await promise.catch((caught: unknown) => caught);
+
+			expect(error).toBeInstanceOf(GitHubIntegrationError);
+			expect(error).toMatchObject({
+				category: "comment_publication_error",
+				status,
+				message: `Unable to publish the ReviewPilot pull request comment (GitHub API ${status}).`,
+				github: {
+					method: "POST",
+					path: "/repos/example/repo/issues/12/comments",
+					responseStatus: status,
+					requestId: `request-${status}`,
+					acceptedPermissions: "issues=write",
+					githubMessage: `safe GitHub ${status}`,
+					operation: "create_comment",
+				},
+			});
+			const diagnostics = JSON.stringify(error.github);
+			expect(diagnostics).not.toContain("installation-secret");
+			expect(diagnostics).not.toContain("full private comment body");
+			expect(diagnostics).not.toContain("hidden");
+		},
+	);
 });

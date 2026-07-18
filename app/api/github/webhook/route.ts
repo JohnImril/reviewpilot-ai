@@ -137,14 +137,23 @@ export async function handleGitHubWebhook(
 						500,
 						{ cause: error },
 					);
-		console.error("ReviewPilot GitHub webhook failed", {
-			deliveryId,
-			event,
-			repository: payload.repository.full_name,
-			pullNumber: payload.pull_request.number,
-			stage: integrationError.category,
-			message: safeErrorMessage(integrationError),
-		});
+		if (integrationError.github) {
+			console.error("ReviewPilot GitHub API request failed", {
+				method: integrationError.github.method,
+				path: integrationError.github.path,
+				responseStatus: integrationError.github.responseStatus,
+				requestId: integrationError.github.requestId,
+				acceptedPermissions:
+					integrationError.github.acceptedPermissions,
+				githubMessage: integrationError.github.githubMessage,
+				operation: integrationError.github.operation,
+			});
+		} else {
+			console.error("ReviewPilot GitHub webhook failed", {
+				category: integrationError.category,
+				message: safeErrorMessage(integrationError),
+			});
+		}
 		return errorResponse(
 			integrationError.category,
 			integrationError.message,
