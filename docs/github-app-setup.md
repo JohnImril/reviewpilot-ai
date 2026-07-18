@@ -97,9 +97,13 @@ credentials (it does not mutate GitHub):
 npm run github:smoke -- --repo JohnImril/reviewpilot-ai --pr <number>
 ```
 
-To prove comment write access, add `--publish`. This creates, updates, and then
-deletes a marker canary. If cleanup fails, the command prints its comment ID/URL.
-It never prints credentials, tokens, the full diff, or comment bodies.
+The dry-run verifies App authorization, repository access, and the ability to
+read the pull request diff and comments. To prove comment write access, add
+`--publish`; this also creates, updates, and then deletes a marker canary. The
+installation token permissions must include `issues: write`,
+`pull_requests: write`, and `metadata: read`. If cleanup fails, the command
+prints its comment ID/URL. It never prints credentials, tokens, the full diff,
+or comment bodies.
 
 After deploying, open the GitHub App settings, choose **Advanced**, open the
 failed `pull_request` delivery, and click **Redeliver**. Correlate its delivery
