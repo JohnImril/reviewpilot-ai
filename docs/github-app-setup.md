@@ -27,14 +27,15 @@ updates one top-level issue comment.
 
 Under **Repository permissions**, select:
 
-| Permission    | Access         | Why                                                   |
-| ------------- | -------------- | ----------------------------------------------------- |
-| Pull requests | Read-only      | Read pull request metadata and its unified diff.      |
-| Issues        | Read and write | List, create, and update top-level PR issue comments. |
+| Permission    | Access         | Why                                                      |
+| ------------- | -------------- | -------------------------------------------------------- |
+| Pull requests | Read and write | Create and update ReviewPilot comments in pull requests. |
+| Issues        | Read and write | List, create, and update top-level PR issue comments.    |
 
 No Contents permission is required. ReviewPilot does not clone repositories,
 run PR code, change files, approve, merge, or use the Checks API. After changing
-App permissions, an existing installation may require owner approval.
+App permissions, the existing installation must be approved again or
+reinstalled before the new permissions take effect.
 
 Under **Subscribe to events**, select **Pull request**. GitHub sends all actions
 for that event; ReviewPilot processes only `opened`, `reopened`, and
@@ -96,9 +97,13 @@ credentials (it does not mutate GitHub):
 npm run github:smoke -- --repo JohnImril/reviewpilot-ai --pr <number>
 ```
 
-To prove comment write access, add `--publish`. This creates, updates, and then
-deletes a marker canary. If cleanup fails, the command prints its comment ID/URL.
-It never prints credentials, tokens, the full diff, or comment bodies.
+The dry-run verifies App authorization, repository access, and the ability to
+read the pull request diff and comments. To prove comment write access, add
+`--publish`; this also creates, updates, and then deletes a marker canary. The
+installation token permissions must include `issues: write`,
+`pull_requests: write`, and `metadata: read`. If cleanup fails, the command
+prints its comment ID/URL. It never prints credentials, tokens, the full diff,
+or comment bodies.
 
 After deploying, open the GitHub App settings, choose **Advanced**, open the
 failed `pull_request` delivery, and click **Redeliver**. Correlate its delivery
