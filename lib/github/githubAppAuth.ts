@@ -1,8 +1,13 @@
 import { createSign } from "node:crypto";
 import { GitHubIntegrationError } from "@/lib/github/errors";
-import type { GitHubAppAuthenticator } from "@/lib/github/types";
+import type {
+	GitHubAppAuthenticator,
+	GitHubInstallationAccess,
+} from "@/lib/github/types";
 
 const GITHUB_API_URL = "https://api.github.com";
+export const GITHUB_USER_AGENT =
+	"ReviewPilot-AI/0.1 (+https://github.com/JohnImril/reviewpilot-ai)";
 
 type FetchLike = typeof fetch;
 
@@ -59,7 +64,9 @@ export class GitHubAppAuth implements GitHubAppAuthenticator {
 		private readonly fetchImpl: FetchLike = fetch,
 	) {}
 
-	async getInstallationToken(installationId: number): Promise<string> {
+	async getInstallationToken(
+		installationId: number,
+	): Promise<GitHubInstallationAccess> {
 		const jwt = createGitHubAppJwt(this.credentials);
 		let response: Response;
 		try {
@@ -79,18 +86,26 @@ export class GitHubAppAuth implements GitHubAppAuthenticator {
 			);
 		}
 
-		const payload = (await response.json().catch(() => null)) as {
-			token?: string;
-			message?: string;
-		} | null;
-		if (!response.ok || !payload?.token) {
+		const payload: unknown = await response.json().catch(() => null);
+		if (
+			!response.ok ||
+			!isObject(payload) ||
+			typeof payload.token !== "string" ||
+			!payload.token
+		) {
 			throw new GitHubIntegrationError(
 				"github_authentication_error",
 				`GitHub rejected the installation token request (${response.status}).`,
 				502,
 			);
 		}
-		return payload.token;
+		return {
+			token: payload.token,
+			expiresAt: optionalString(payload.expires_at),
+			permissions: stringRecord(payload.permissions),
+			repositorySelection: optionalString(payload.repository_selection),
+			repositoryIds: repositoryIds(payload.repositories),
+		};
 	}
 }
 
@@ -103,5 +118,27 @@ function githubHeaders(jwt: string) {
 		Accept: "application/vnd.github+json",
 		Authorization: `Bearer ${jwt}`,
 		"X-GitHub-Api-Version": "2022-11-28",
+		"User-Agent": GITHUB_USER_AGENT,
 	};
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null;
+}
+function optionalString(value: unknown) {
+	return typeof value === "string" ? value : undefined;
+}
+function stringRecord(value: unknown): Record<string, string> {
+	if (!isObject(value)) return {};
+	return Object.fromEntries(
+		Object.entries(value).filter(
+			(entry): entry is [string, string] => typeof entry[1] === "string",
+		),
+	);
+}
+function repositoryIds(value: unknown) {
+	if (!Array.isArray(value)) return undefined;
+	return value
+		.map((item) => (isObject(item) ? item.id : undefined))
+		.filter((id): id is number => Number.isSafeInteger(id));
 }

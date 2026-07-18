@@ -12,6 +12,7 @@
 		"eval:mock": "vitest run tests/goldenEvals.test.ts",
 		"eval:real": "vitest run tests/realProviderEvals.test.ts",
 		"github:webhook:test": "node scripts/send-test-github-webhook.mjs",
+		"github:smoke": "node scripts/github-app-smoke-test.mjs",
 		"format": "prettier . --write",
 		"format:check": "prettier . --check"
 	},

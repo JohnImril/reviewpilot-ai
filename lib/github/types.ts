@@ -36,6 +36,14 @@ export type GitHubIssueComment = {
 	performed_via_github_app: { id: number } | null;
 };
 
+export type GitHubInstallationAccess = {
+	token: string;
+	expiresAt?: string;
+	permissions: Record<string, string>;
+	repositorySelection?: string;
+	repositoryIds?: number[];
+};
+
 export interface GitHubClient {
 	getPullRequestDiff(input: {
 		owner: string;
@@ -62,7 +70,9 @@ export interface GitHubClient {
 }
 
 export interface GitHubAppAuthenticator {
-	getInstallationToken(installationId: number): Promise<string>;
+	getInstallationToken(
+		installationId: number,
+	): Promise<GitHubInstallationAccess>;
 }
 
 export interface DeliveryStore {

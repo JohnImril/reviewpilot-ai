@@ -27,14 +27,14 @@ updates one top-level issue comment.
 
 Under **Repository permissions**, select:
 
-| Permission    | Access         | Why                                                        |
-| ------------- | -------------- | ---------------------------------------------------------- |
-| Pull requests | Read-only      | Read pull request metadata and its unified diff.           |
-| Contents      | Read-only      | Allow read access to repository content referenced by PRs. |
-| Issues        | Read and write | List, create, and update top-level PR issue comments.      |
+| Permission    | Access         | Why                                                   |
+| ------------- | -------------- | ----------------------------------------------------- |
+| Pull requests | Read-only      | Read pull request metadata and its unified diff.      |
+| Issues        | Read and write | List, create, and update top-level PR issue comments. |
 
-Do not grant write access to Contents. ReviewPilot does not clone repositories,
-run PR code, change files, approve, merge, or use the Checks API.
+No Contents permission is required. ReviewPilot does not clone repositories,
+run PR code, change files, approve, merge, or use the Checks API. After changing
+App permissions, an existing installation may require owner approval.
 
 Under **Subscribe to events**, select **Pull request**. GitHub sends all actions
 for that event; ReviewPilot processes only `opened`, `reopened`, and
@@ -89,6 +89,23 @@ posts text. It does not expose secrets to, clone, or execute code from the fork.
 
 ## 5. Local signed request helper
 
+Before redelivering a production webhook, run a live dry-run with the same App
+credentials (it does not mutate GitHub):
+
+```bash
+npm run github:smoke -- --repo JohnImril/reviewpilot-ai --pr <number>
+```
+
+To prove comment write access, add `--publish`. This creates, updates, and then
+deletes a marker canary. If cleanup fails, the command prints its comment ID/URL.
+It never prints credentials, tokens, the full diff, or comment bodies.
+
+After deploying, open the GitHub App settings, choose **Advanced**, open the
+failed `pull_request` delivery, and click **Redeliver**. Correlate its delivery
+ID with Vercel Logs and inspect only `deliveryId`, event/action, repository, PR,
+installation ID, processing stage/duration, GitHub method/path/status, request
+ID, accepted permissions, safe message, validation fields, and operation.
+
 Start Next.js with a local test secret:
 
 ```bash
@@ -124,7 +141,8 @@ installation's access.
 ## MVP limitations
 
 - Review runs synchronously in the webhook request; there is no queue or
-  background worker.
+  background worker. It is intended for the mock or another fast provider;
+  GitHub can treat a slow webhook response as failed.
 - Duplicate delivery protection is in memory, bounded, and instance-local. It is
   best-effort on serverless deployments. Comment upsert remains the durable
   protection against duplicate ReviewPilot comments.

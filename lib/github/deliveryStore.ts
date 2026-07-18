@@ -93,7 +93,18 @@ export class FileDeliveryStore implements DeliveryStore {
 	}
 }
 
-export const githubDeliveryStore: DeliveryStore = process.env
-	.GITHUB_DELIVERY_STORE_PATH
-	? new FileDeliveryStore(process.env.GITHUB_DELIVERY_STORE_PATH)
-	: new InMemoryDeliveryStore();
+export function createDeliveryStore(
+	environment: NodeJS.ProcessEnv = process.env,
+): DeliveryStore {
+	if (environment.GITHUB_DELIVERY_STORE_PATH && environment.VERCEL) {
+		console.warn(
+			"GITHUB_DELIVERY_STORE_PATH is ignored on Vercel: the file store is not safe for multi-instance serverless deployments.",
+		);
+		return new InMemoryDeliveryStore();
+	}
+	return environment.GITHUB_DELIVERY_STORE_PATH
+		? new FileDeliveryStore(environment.GITHUB_DELIVERY_STORE_PATH)
+		: new InMemoryDeliveryStore();
+}
+
+export const githubDeliveryStore = createDeliveryStore();

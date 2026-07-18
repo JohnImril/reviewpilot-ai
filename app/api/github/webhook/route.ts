@@ -30,6 +30,7 @@ export async function handleGitHubWebhook(
 	request: Request,
 	dependencies: WebhookHandlerDependencies,
 ) {
+	const startedAt = performance.now();
 	const event = request.headers.get("x-github-event");
 	const deliveryId = request.headers.get("x-github-delivery");
 	const signature = request.headers.get("x-hub-signature-256");
@@ -137,8 +138,21 @@ export async function handleGitHubWebhook(
 						500,
 						{ cause: error },
 					);
+		const context = {
+			deliveryId,
+			event,
+			action: payload.action,
+			repository: payload.repository.full_name,
+			pullNumber: payload.pull_request.number,
+			installationId: payload.installation.id,
+			processingStage: integrationError.github?.operation
+				? "publish_comment"
+				: "processing",
+			durationMs: Math.round(performance.now() - startedAt),
+		};
 		if (integrationError.github) {
 			console.error("ReviewPilot GitHub API request failed", {
+				...context,
 				method: integrationError.github.method,
 				path: integrationError.github.path,
 				responseStatus: integrationError.github.responseStatus,
@@ -146,10 +160,12 @@ export async function handleGitHubWebhook(
 				acceptedPermissions:
 					integrationError.github.acceptedPermissions,
 				githubMessage: integrationError.github.githubMessage,
+				validationErrors: integrationError.github.validationErrors,
 				operation: integrationError.github.operation,
 			});
 		} else {
 			console.error("ReviewPilot GitHub webhook failed", {
+				...context,
 				category: integrationError.category,
 				message: safeErrorMessage(integrationError),
 			});
@@ -158,6 +174,12 @@ export async function handleGitHubWebhook(
 			integrationError.category,
 			integrationError.message,
 			integrationError.status,
+			{
+				diagnosticId: deliveryId,
+				upstreamStatus:
+					integrationError.github?.responseStatus || undefined,
+				operation: integrationError.github?.operation,
+			},
 		);
 	}
 }
@@ -186,6 +208,14 @@ export async function POST(request: Request) {
 	});
 }
 
-function errorResponse(category: string, message: string, status: number) {
-	return Response.json({ status: "error", category, message }, { status });
+function errorResponse(
+	category: string,
+	message: string,
+	status: number,
+	diagnostics: Record<string, unknown> = {},
+) {
+	return Response.json(
+		{ status: "error", category, message, ...diagnostics },
+		{ status },
+	);
 }

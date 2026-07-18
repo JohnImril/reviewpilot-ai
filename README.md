@@ -150,7 +150,6 @@ GITHUB_APP_ID=
 GITHUB_APP_PRIVATE_KEY=
 GITHUB_WEBHOOK_SECRET=
 GITHUB_MAX_DIFF_CHARS=100000
-GITHUB_DELIVERY_STORE_PATH=.data/github-deliveries.json
 ```
 
 GitHub credentials are required only for the webhook integration. Read the
@@ -248,18 +247,19 @@ More examples are documented in
 
 ## Scripts
 
-| Command                       | Description                                 |
-| ----------------------------- | ------------------------------------------- |
-| `npm run dev`                 | Start the local development server.         |
-| `npm run build`               | Create a production build.                  |
-| `npm run start`               | Start the production server after building. |
-| `npm run lint`                | Run ESLint.                                 |
-| `npm run test`                | Run Vitest unit tests.                      |
-| `npm run test:watch`          | Run Vitest in watch mode.                   |
-| `npm run eval:mock`           | Run deterministic golden-case AI evals.     |
-| `npm run github:webhook:test` | Send a locally signed fixture webhook.      |
-| `npm run format`              | Format files with Prettier.                 |
-| `npm run format:check`        | Check formatting without writing changes.   |
+| Command                                                 | Description                                 |
+| ------------------------------------------------------- | ------------------------------------------- |
+| `npm run dev`                                           | Start the local development server.         |
+| `npm run build`                                         | Create a production build.                  |
+| `npm run start`                                         | Start the production server after building. |
+| `npm run lint`                                          | Run ESLint.                                 |
+| `npm run test`                                          | Run Vitest unit tests.                      |
+| `npm run test:watch`                                    | Run Vitest in watch mode.                   |
+| `npm run eval:mock`                                     | Run deterministic golden-case AI evals.     |
+| `npm run github:webhook:test`                           | Send a locally signed fixture webhook.      |
+| `npm run github:smoke -- --repo OWNER/REPO --pr NUMBER` | Live GitHub App dry-run (opt-in).           |
+| `npm run format`                                        | Format files with Prettier.                 |
+| `npm run format:check`                                  | Check formatting without writing changes.   |
 
 ## CI / Quality Checks
 
@@ -300,10 +300,10 @@ Opt-in real-provider evals reuse those cases. Set `RUN_REAL_PROVIDER_EVALS=1`
 and `OPENAI_API_KEY`, then run `npm run eval:real`. They stay out of CI
 because they use network access and incur provider cost.
 
-For a long-lived Node deployment, `GITHUB_DELIVERY_STORE_PATH` enables the
-atomic file-backed delivery store so completed webhook IDs survive restarts.
-Mount that path on durable storage. Serverless or multi-instance deployments
-should replace the adapter with an external transactional queue/store.
+For a single-instance, long-lived Node deployment only,
+`GITHUB_DELIVERY_STORE_PATH` enables a best-effort file-backed delivery store.
+It is not transactional under concurrent access and is explicitly disabled on
+Vercel. Serverless or multi-instance deployments need an external atomic store.
 
 ## Testing
 
