@@ -27,14 +27,15 @@ updates one top-level issue comment.
 
 Under **Repository permissions**, select:
 
-| Permission    | Access         | Why                                                   |
-| ------------- | -------------- | ----------------------------------------------------- |
-| Pull requests | Read-only      | Read pull request metadata and its unified diff.      |
-| Issues        | Read and write | List, create, and update top-level PR issue comments. |
+| Permission    | Access         | Why                                                      |
+| ------------- | -------------- | -------------------------------------------------------- |
+| Pull requests | Read and write | Create and update ReviewPilot comments in pull requests. |
+| Issues        | Read and write | List, create, and update top-level PR issue comments.    |
 
 No Contents permission is required. ReviewPilot does not clone repositories,
 run PR code, change files, approve, merge, or use the Checks API. After changing
-App permissions, an existing installation may require owner approval.
+App permissions, the existing installation must be approved again or
+reinstalled before the new permissions take effect.
 
 Under **Subscribe to events**, select **Pull request**. GitHub sends all actions
 for that event; ReviewPilot processes only `opened`, `reopened`, and
