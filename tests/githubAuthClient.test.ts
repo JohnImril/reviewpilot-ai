@@ -49,10 +49,25 @@ describe("GitHub App authentication", () => {
 		).toBe(true);
 
 		const fetchMock = vi.fn(async () =>
-			Response.json({ token: "installation-token" }, { status: 201 }),
+			Response.json(
+				{
+					token: "installation-token",
+					expires_at: "2030-01-01T00:00:00Z",
+					permissions: { issues: "write", pull_requests: "read" },
+					repository_selection: "selected",
+					repositories: [{ id: 9 }],
+				},
+				{ status: 201 },
+			),
 		);
 		const auth = new GitHubAppAuth(credentials, fetchMock as typeof fetch);
-		expect(await auth.getInstallationToken(77)).toBe("installation-token");
+		expect(await auth.getInstallationToken(77)).toEqual({
+			token: "installation-token",
+			expiresAt: "2030-01-01T00:00:00Z",
+			permissions: { issues: "write", pull_requests: "read" },
+			repositorySelection: "selected",
+			repositoryIds: [9],
+		});
 		expect(fetchMock).toHaveBeenCalledWith(
 			"https://api.github.com/app/installations/77/access_tokens",
 			expect.objectContaining({ method: "POST" }),
@@ -63,10 +78,83 @@ describe("GitHub App authentication", () => {
 		>;
 		expect(headers.Authorization).toMatch(/^Bearer ey/);
 		expect(headers.Authorization).not.toContain("installation-token");
+		expect(headers["User-Agent"]).toContain("ReviewPilot-AI/0.1");
 	});
 });
 
 describe("GitHub REST client", () => {
+	it.each([
+		[
+			"create",
+			(client: GitHubRestClient) =>
+				client.createIssueComment({
+					owner: "o",
+					repo: "r",
+					issueNumber: 1,
+					body: "secret body",
+				}),
+			"create_comment",
+		],
+		[
+			"update",
+			(client: GitHubRestClient) =>
+				client.updateIssueComment({
+					owner: "o",
+					repo: "r",
+					commentId: 2,
+					body: "secret body",
+				}),
+			"update_comment",
+		],
+	])(
+		"keeps %s network failures classified as publication errors",
+		async (_name, invoke, operation) => {
+			const client = new GitHubRestClient(
+				"secret-token",
+				vi.fn(async () => {
+					throw new TypeError("network down");
+				}) as typeof fetch,
+			);
+			await expect(invoke(client)).rejects.toMatchObject({
+				category: "comment_publication_error",
+				github: { operation, responseStatus: 0 },
+			});
+		},
+	);
+
+	it("allowlists and truncates validation diagnostics", async () => {
+		const client = new GitHubRestClient(
+			"token",
+			vi.fn(async () =>
+				Response.json(
+					{
+						message: "Validation Failed",
+						errors: [
+							{
+								resource: "Issue",
+								field: "body",
+								code: "invalid",
+								secret: "hidden",
+							},
+						],
+					},
+					{ status: 422 },
+				),
+			) as typeof fetch,
+		);
+		const error = await client
+			.createIssueComment({
+				owner: "o",
+				repo: "r",
+				issueNumber: 1,
+				body: "private",
+			})
+			.catch((value) => value);
+		expect(error.github.validationErrors).toEqual([
+			{ resource: "Issue", field: "body", code: "invalid" },
+		]);
+		expect(JSON.stringify(error.github)).not.toContain("hidden");
+	});
 	it("requests the unified pull request diff with installation auth", async () => {
 		const fetchMock = vi.fn(async () => new Response("diff --git a/a b/a"));
 		const client = new GitHubRestClient(
@@ -83,6 +171,7 @@ describe("GitHub REST client", () => {
 		const headers = init.headers as Record<string, string>;
 		expect(headers.Accept).toBe("application/vnd.github.v3.diff");
 		expect(headers.Authorization).toBe("Bearer secret-token");
+		expect(headers["User-Agent"]).toContain("ReviewPilot-AI/0.1");
 	});
 
 	it("paginates issue comments until a short page", async () => {

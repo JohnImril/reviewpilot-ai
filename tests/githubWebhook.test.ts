@@ -141,14 +141,16 @@ describe("GitHub webhook filtering and validation", () => {
 			const response = await send("pull_request", validPayload);
 
 			expect(response.status).toBe(status);
-			expect(await response.json()).toEqual({
+			expect(await response.json()).toMatchObject({
 				status: "error",
 				category: "comment_publication_error",
 				message: `Unable to publish the ReviewPilot pull request comment (GitHub API ${status}).`,
+				upstreamStatus: status,
+				operation: "update_comment",
 			});
 			expect(consoleSpy).toHaveBeenCalledWith(
 				"ReviewPilot GitHub API request failed",
-				error.github,
+				expect.objectContaining(error.github),
 			);
 			consoleSpy.mockRestore();
 		},

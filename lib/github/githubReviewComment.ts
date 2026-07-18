@@ -77,12 +77,21 @@ export async function upsertReviewComment(input: {
 	repo: string;
 	pullNumber: number;
 	body: string;
+	onTiming?: (
+		stage: "list_comments" | "publish_comment",
+		durationMs: number,
+	) => void;
 }) {
+	let stageStarted = performance.now();
 	const comments = await input.client.listIssueComments({
 		owner: input.owner,
 		repo: input.repo,
 		issueNumber: input.pullNumber,
 	});
+	input.onTiming?.(
+		"list_comments",
+		Math.round(performance.now() - stageStarted),
+	);
 	const existing = comments.find(
 		(comment) =>
 			comment.body?.includes(REVIEWPILOT_COMMENT_MARKER) &&
@@ -90,6 +99,7 @@ export async function upsertReviewComment(input: {
 	);
 
 	try {
+		stageStarted = performance.now();
 		if (existing) {
 			await input.client.updateIssueComment({
 				owner: input.owner,
@@ -97,6 +107,10 @@ export async function upsertReviewComment(input: {
 				commentId: existing.id,
 				body: input.body,
 			});
+			input.onTiming?.(
+				"publish_comment",
+				Math.round(performance.now() - stageStarted),
+			);
 			return "updated" as const;
 		}
 		await input.client.createIssueComment({
@@ -105,6 +119,10 @@ export async function upsertReviewComment(input: {
 			issueNumber: input.pullNumber,
 			body: input.body,
 		});
+		input.onTiming?.(
+			"publish_comment",
+			Math.round(performance.now() - stageStarted),
+		);
 		return "created" as const;
 	} catch (error) {
 		if (error instanceof GitHubIntegrationError) throw error;

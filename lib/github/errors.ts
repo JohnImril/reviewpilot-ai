@@ -8,6 +8,12 @@ export type GitHubIntegrationErrorCategory =
 
 export type GitHubApiOperation = "create_comment" | "update_comment";
 
+export type GitHubValidationError = {
+	resource?: string;
+	field?: string;
+	code?: string;
+};
+
 export type GitHubApiDiagnostics = {
 	method: string;
 	path: string;
@@ -15,6 +21,7 @@ export type GitHubApiDiagnostics = {
 	requestId: string | null;
 	acceptedPermissions: string | null;
 	githubMessage: string;
+	validationErrors?: GitHubValidationError[];
 	operation?: GitHubApiOperation;
 };
 

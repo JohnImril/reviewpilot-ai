@@ -25,7 +25,11 @@ const payload: PullRequestWebhook = {
 describe("GitHub pull request orchestration", () => {
 	it("gets a token and diff, runs the provider, and creates a comment", async () => {
 		const client = new FakeGitHubClient(reactUseEffectDiff);
-		const getInstallationToken = vi.fn(async () => "installation-token");
+		const getInstallationToken = vi.fn(async () => ({
+			token: "installation-token",
+			permissions: {},
+			repositorySelection: "selected",
+		}));
 		const reviewProvider = new MockAIProvider();
 		const reviewSpy = vi.spyOn(reviewProvider, "reviewDiff");
 		const createClient = vi.fn(() => client);
@@ -135,7 +139,12 @@ async function run(
 	maxDiffChars = 100_000,
 ) {
 	return processPullRequestEvent(payload, {
-		authenticator: { getInstallationToken: async () => "token" },
+		authenticator: {
+			getInstallationToken: async () => ({
+				token: "token",
+				permissions: {},
+			}),
+		},
 		createClient: () => client,
 		reviewProvider,
 		appId: 123,

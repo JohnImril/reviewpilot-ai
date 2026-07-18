@@ -24,20 +24,26 @@ export async function processPullRequestEvent(
 	payload: PullRequestWebhook,
 	dependencies: ProcessPullRequestDependencies,
 ) {
+	const startedAt = performance.now();
+	const timings: Record<string, number> = {};
+	let stageStarted = performance.now();
 	const { owner } = payload.repository;
 	const repo = payload.repository.name;
 	const pullNumber = payload.pull_request.number;
-	const token = await dependencies.authenticator.getInstallationToken(
+	const access = await dependencies.authenticator.getInstallationToken(
 		payload.installation.id,
 	);
-	const client = dependencies.createClient(token);
+	timings.authentication = Math.round(performance.now() - stageStarted);
+	const client = dependencies.createClient(access.token);
 	let diff: string;
 	try {
+		stageStarted = performance.now();
 		diff = await client.getPullRequestDiff({
 			owner: owner.login,
 			repo,
 			pullNumber,
 		});
+		timings.fetch_diff = Math.round(performance.now() - stageStarted);
 	} catch (error) {
 		if (error instanceof GitHubIntegrationError) throw error;
 		throw new GitHubIntegrationError(
@@ -63,10 +69,12 @@ export async function processPullRequestEvent(
 	} else {
 		outcome = "reviewed";
 		try {
+			stageStarted = performance.now();
 			const review = await runReview(
 				{ diff, mode: "general" },
 				dependencies.reviewProvider,
 			);
+			timings.review = Math.round(performance.now() - stageStarted);
 			body = formatReviewComment(review);
 		} catch (error) {
 			throw new GitHubIntegrationError(
@@ -78,6 +86,7 @@ export async function processPullRequestEvent(
 		}
 	}
 
+	timings.review ??= 0;
 	const commentAction = await upsertReviewComment({
 		client,
 		appId: dependencies.appId,
@@ -85,11 +94,21 @@ export async function processPullRequestEvent(
 		repo,
 		pullNumber,
 		body,
+		onTiming: (stage, durationMs) => {
+			timings[stage] = durationMs;
+		},
 	});
+	timings.total = Math.round(performance.now() - startedAt);
 	return {
 		outcome,
 		commentAction,
 		fork: payload.pull_request.head?.repo?.fork ?? false,
+		installation: {
+			expiresAt: access.expiresAt,
+			permissions: access.permissions,
+			repositorySelection: access.repositorySelection,
+		},
+		timings,
 	};
 }
 

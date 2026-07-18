@@ -3,6 +3,7 @@ import {
 	type GitHubApiOperation,
 } from "@/lib/github/errors";
 import type { GitHubClient, GitHubIssueComment } from "@/lib/github/types";
+import { GITHUB_USER_AGENT } from "@/lib/github/githubAppAuth";
 
 const GITHUB_API_URL = "https://api.github.com";
 const COMMENTS_PER_PAGE = 100;
@@ -84,19 +85,36 @@ export class GitHubRestClient implements GitHubClient {
 					Authorization: `Bearer ${this.installationToken}`,
 					"Content-Type": "application/json",
 					"X-GitHub-Api-Version": "2022-11-28",
+					"User-Agent": GITHUB_USER_AGENT,
 					...init.headers,
 				},
 			});
 		} catch (error) {
 			throw new GitHubIntegrationError(
-				"github_api_error",
-				"Unable to contact the GitHub API.",
+				operation ? "comment_publication_error" : "github_api_error",
+				operation
+					? "Unable to publish the ReviewPilot pull request comment because GitHub could not be reached."
+					: "Unable to contact the GitHub API.",
 				502,
-				{ cause: error },
+				{
+					cause: error,
+					github: operation
+						? {
+								method: init.method ?? "GET",
+								path,
+								responseStatus: 0,
+								requestId: null,
+								acceptedPermissions: null,
+								githubMessage:
+									"GitHub API network request failed.",
+								operation,
+							}
+						: undefined,
+				},
 			);
 		}
 		if (!response.ok) {
-			const githubMessage = await readGitHubErrorMessage(response);
+			const githubError = await readGitHubError(response);
 			const method = init.method ?? "GET";
 			const rateLimited =
 				response.status === 429 ||
@@ -123,7 +141,8 @@ export class GitHubRestClient implements GitHubClient {
 						acceptedPermissions: response.headers.get(
 							"x-accepted-github-permissions",
 						),
-						githubMessage,
+						githubMessage: githubError.message,
+						validationErrors: githubError.validationErrors,
 						operation,
 					},
 				},
@@ -133,14 +152,35 @@ export class GitHubRestClient implements GitHubClient {
 	}
 }
 
-async function readGitHubErrorMessage(response: Response) {
+async function readGitHubError(response: Response) {
 	try {
-		const body = (await response.clone().json()) as { message?: unknown };
-		if (typeof body.message === "string") {
-			return body.message.replace(/[\r\n\t]/g, " ").slice(0, 500);
-		}
+		const body = (await response.clone().json()) as {
+			message?: unknown;
+			errors?: unknown;
+		};
+		const message =
+			typeof body.message === "string"
+				? body.message.replace(/[\r\n\t]/g, " ").slice(0, 500)
+				: "GitHub API request failed.";
+		const validationErrors = Array.isArray(body.errors)
+			? body.errors.slice(0, 10).flatMap((item) => {
+					if (typeof item !== "object" || item === null) return [];
+					const source = item as Record<string, unknown>;
+					const safe: Record<string, string> = {};
+					for (const key of ["resource", "field", "code"])
+						if (typeof source[key] === "string")
+							safe[key] = source[key]
+								.replace(/[\r\n\t]/g, " ")
+								.slice(0, 100);
+					return Object.keys(safe).length ? [safe] : [];
+				})
+			: undefined;
+		return { message, validationErrors };
 	} catch {
 		// GitHub error responses are normally JSON; never log an unparsed body.
 	}
-	return "GitHub API request failed.";
+	return {
+		message: "GitHub API request failed.",
+		validationErrors: undefined,
+	};
 }
