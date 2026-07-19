@@ -35,8 +35,7 @@ export class InMemoryDeliveryStore implements DeliveryStore {
 			if (value.expiresAt <= now) this.deliveries.delete(key);
 		while (this.deliveries.size >= this.maxEntries) {
 			const oldest = this.deliveries.keys().next().value as
-				| string
-				| undefined;
+				string | undefined;
 			if (!oldest) break;
 			this.deliveries.delete(oldest);
 		}
