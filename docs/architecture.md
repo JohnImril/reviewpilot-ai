@@ -1,20 +1,24 @@
 # Architecture
 
+[Back to the README](../README.md)
+
 ReviewPilot AI is organized around a stable review contract and a replaceable
 AI provider. The UI does not know whether a response came from deterministic
-local heuristics or a future LLM service.
+local heuristics or the optional OpenAI provider: both use the same response
+shape. The dashboard's provider badge is currently static, so it does not
+indicate the actual server configuration.
 
 ## Request / Response Flow
 
 1. The dashboard in `app/page.tsx` collects a git diff and `ReviewMode`.
 2. The client posts `{ diff, mode }` to `POST /api/review`.
 3. `app/api/review/route.ts` validates the request with `reviewRequestSchema`.
-4. The route calls `getReviewProvider()`.
+4. The route calls the shared `runReview()` service, which uses `getReviewProvider()`.
 5. The provider factory reads `AI_PROVIDER` and returns `MockAIProvider` by
    default or `OpenAIReviewProvider` when explicitly configured.
 6. The active provider returns a `ReviewResponse`.
-7. The API validates the provider result with `reviewResponseSchema` /
-   `ReviewResultSchema`.
+7. The shared service validates the provider result with `reviewResponseSchema` /
+   `ReviewResultSchema` before the API returns it.
 8. The UI renders the response with the shared `ReviewResult` component.
 
 Both the manual route and GitHub webhook call `lib/review/runReview.ts`. This
@@ -52,8 +56,9 @@ performed over the exact raw UTF-8 request body and uses timing-safe comparison.
 The integration never logs payloads, diffs, private keys, secrets, API keys, or
 installation tokens.
 
-The `/examples` page reuses the same provider and `ReviewResult` component, but
-it renders prepared reports server-side for a static portfolio-friendly route.
+The `/examples` page explicitly uses `MockAIProvider` and the shared
+`ReviewResult` component. It renders prepared reports server-side, regardless
+of the provider configured for the manual API or webhook.
 
 ## Provider-Based Architecture
 
@@ -83,7 +88,8 @@ API route
 
 If `AI_PROVIDER` is missing, set to `mock`, or set to an invalid value, the
 factory returns `MockAIProvider`. `AI_PROVIDER=openai` selects the optional
-OpenAI-compatible provider.
+OpenAI provider. The endpoint is fixed to OpenAI; a custom base URL is not
+currently configurable.
 
 ## Unified Diff Parsing
 
@@ -112,8 +118,9 @@ package.
   suggestions, merge recommendation, and confidence.
 
 The API validates both incoming requests and outgoing provider responses. This
-keeps malformed provider output from leaking into the UI and gives a future LLM
-integration a clear contract.
+keeps malformed provider output from leaking into the UI and gives both
+providers a shared contract. It validates structure, not the correctness of
+the review findings.
 
 ## Mock AI Heuristics
 
@@ -139,7 +146,7 @@ and maps the score to overall risk:
 | 35-69  | `medium`     |
 | 70-100 | `high`       |
 
-## OpenAI-Compatible Provider
+## OpenAI Provider
 
 `OpenAIReviewProvider` is optional and uses direct `fetch` instead of an SDK. It
 reads:
@@ -195,16 +202,16 @@ This makes the result feel closer to a real pull request review because
 feedback points to a file, line, and snippet instead of only describing the diff
 globally.
 
-The goal is not to replace a real reviewer. The goal is to demonstrate the
-product shape, validation model, and provider contract without requiring API
-keys or external services.
+Findings and merge recommendations are advisory. The provider sees the submitted
+diff, without full repository context, and does not execute code or tests.
 
 ## Fallback Behavior
 
 The project remains demo-friendly without external services. Mock mode is the
 default and requires no API keys. OpenAI mode is opt-in and fails fast when
-configuration is missing or model output does not match the schema. Tests do not
-call external APIs.
+configuration is missing or model output does not match the schema. Ordinary
+tests do not call external APIs. Real-provider evals are a separate opt-in path;
+see [the eval guide](../evals/README.md).
 
 ## Tested Core Modules
 
