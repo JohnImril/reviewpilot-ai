@@ -1,8 +1,11 @@
 # Prompt Design
 
+[Back to the README](../README.md)
+
 ReviewPilot AI includes a real prompt architecture while keeping mock mode as
-the default. The optional OpenAI-compatible provider uses the prompt helpers in
-`lib/ai/reviewPrompt.ts`; tests do not call external APIs.
+the default. The optional OpenAI provider uses the prompt helpers in
+`lib/ai/reviewPrompt.ts`. Ordinary tests do not call external APIs;
+[real-provider evals](../evals/README.md#run-real-provider-evals) are opt-in.
 
 ## Prompt Structure
 
@@ -72,7 +75,9 @@ expectations aligned around one schema.
 
 `MockAIProvider` remains the default. `getReviewProvider()` reads
 `AI_PROVIDER`; missing, `mock`, or invalid values return the mock provider.
-`AI_PROVIDER=openai` enables the OpenAI-compatible provider.
+`AI_PROVIDER=openai` enables the OpenAI provider. The endpoint is fixed to OpenAI;
+custom base URLs are not currently configurable. An OpenAI request failure
+returns an error rather than falling back to mock output.
 
 Mock mode keeps the app safe for local demos, CI, portfolio review, and tests
 without API keys or network calls.

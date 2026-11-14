@@ -1,5 +1,7 @@
 # GitHub App MVP setup
 
+[Back to the README](../README.md) · [Local setup](./getting-started.md)
+
 This guide registers ReviewPilot AI as a private GitHub App for a test
 repository. The integration is an MVP: it receives pull request webhooks,
 downloads the unified diff, runs the existing review provider, and creates or
@@ -93,6 +95,9 @@ posts text. It does not expose secrets to, clone, or execute code from the fork.
 Before redelivering a production webhook, run a live dry-run with the same App
 credentials (it does not mutate GitHub):
 
+Set `GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY` in the shell environment first.
+This standalone Node script does not automatically load Next.js `.env.local`.
+
 ```bash
 npm run github:smoke -- --repo JohnImril/reviewpilot-ai --pr <number>
 ```
@@ -111,10 +116,17 @@ ID with Vercel Logs and inspect only `deliveryId`, event/action, repository, PR,
 installation ID, processing stage/duration, GitHub method/path/status, request
 ID, accepted permissions, safe message, validation fields, and operation.
 
-Start Next.js with a local test secret:
+Start Next.js with a local test secret (macOS / Linux / Git Bash):
 
 ```bash
 GITHUB_WEBHOOK_SECRET=local-test-secret npm run dev
+```
+
+In PowerShell:
+
+```powershell
+$env:GITHUB_WEBHOOK_SECRET = "local-test-secret"
+npm run dev
 ```
 
 In another shell run:
@@ -148,9 +160,12 @@ installation's access.
 - Review runs synchronously in the webhook request; there is no queue or
   background worker. It is intended for the mock or another fast provider;
   GitHub can treat a slow webhook response as failed.
-- Duplicate delivery protection is in memory, bounded, and instance-local. It is
-  best-effort on serverless deployments. Comment upsert remains the durable
-  protection against duplicate ReviewPilot comments.
+- Duplicate delivery protection is in memory, bounded, and instance-local by
+  default. `GITHUB_DELIVERY_STORE_PATH` optionally enables a best-effort file
+  store for a single long-lived Node instance; it is not transactional under
+  concurrent access and is ignored on Vercel. Comment lookup and update reduce
+  duplicates, but concurrent deliveries can still race. Multi-instance deployments
+  need external atomic storage and coordination.
 - Comment discovery reads up to 1,000 issue comments (10 pages of 100).
 - Diffs over `GITHUB_MAX_DIFF_CHARS` (100,000 by default) are not partially
   reviewed; the App posts an explicit notice.

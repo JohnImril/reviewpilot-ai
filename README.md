@@ -1,347 +1,172 @@
 # ReviewPilot AI
 
-ReviewPilot AI is a portfolio-ready Pull Request review assistant built with
-Next.js, React, TypeScript, Tailwind CSS, and Zod. It turns a pasted git diff
-into structured code review feedback and can run the same pipeline from a
-GitHub App pull request webhook: pull request summary, changed-file risk,
-line-aware issues, explainable risk scoring, test suggestions, confidence, and
-merge recommendation.
+**Turn a git diff into a structured code review, locally or in a GitHub pull request.**
 
-The current release uses `MockAIProvider`, a deterministic local provider that
-requires no API keys or external services. The project is intentionally designed
-so a real LLM provider can be added later behind the same provider interface and
-validated response schema.
+[![CI](https://github.com/JohnImril/reviewpilot-ai/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/JohnImril/reviewpilot-ai/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 
-Live demo: [reviewpilot-ai-lime.vercel.app](https://reviewpilot-ai-lime.vercel.app/)
+ReviewPilot AI is an open-source PR review assistant for developers working with
+React and TypeScript. Paste a unified diff to get findings with file and line
+references, suggested fixes, test ideas, and an explained risk score. Run the
+deterministic demo without API keys, connect OpenAI for model-generated reviews,
+or configure a GitHub App to post reports on your pull requests.
 
-## Problem / Solution
+**[Try the live demo](https://reviewpilot-ai-lime.vercel.app/)** ·
+**[Browse example reports](https://reviewpilot-ai-lime.vercel.app/examples)** ·
+**[Run locally](#quick-start)** ·
+**[Set up the GitHub App](./docs/github-app-setup.md)**
 
-Pull request review feedback is often inconsistent, hard to scan, or buried in
-long conversational comments. ReviewPilot AI demonstrates how an AI-assisted
-review workflow can parse raw unified diffs into predictable, review-ready
-sections that are easier to evaluate.
+> **Current stage: working MVP.** The default provider uses local, rule-based
+> heuristics, not an LLM. OpenAI reviews are available when configured on your
+> own deployment. Review output is advisory; the app does not approve or merge PRs.
 
-The solution is a small but complete app with an interactive diff analyzer,
-focused review modes, line-based findings, a structured API contract, and
-prepared examples for live portfolio demos.
+[![ReviewPilot showing a TypeScript diff beside review findings, a risk score breakdown, and changed-file details](./public/screenshots/review-result.png)](https://reviewpilot-ai-lime.vercel.app/examples)
 
-## Screenshots
+## Try a review
 
-| Dashboard                                        | Examples                                       | Review result                                            |
-| ------------------------------------------------ | ---------------------------------------------- | -------------------------------------------------------- |
-| ![Dashboard](./public/screenshots/dashboard.png) | ![Examples](./public/screenshots/examples.png) | ![Review result](./public/screenshots/review-result.png) |
+1. Open the [demo](https://reviewpilot-ai-lime.vercel.app/).
+2. Click **Load Example Diff**, then **Analyze Diff**. No account or API key is needed.
+3. Inspect the findings, their locations, and the factors behind the risk score.
+   Click **Load Example Diff** again to try the next scenario.
 
-## Features
+Bundled examples cover React effect dependencies, weak TypeScript typing,
+frontend rendering costs, and dependency changes. The
+[Examples page](https://reviewpilot-ai-lime.vercel.app/examples) shows prepared
+mock reports without submitting a diff.
 
-- Paste unified git diffs from GitHub, GitLab, or local `git diff` output.
-- Parse changed files, hunks, additions, deletions, and line numbers.
-- Select a focused review mode before analysis.
-- View changed line, file, and character counts.
-- Receive location-aware feedback for possible bugs, refactoring, and tests.
-- Review changed-file cards with language, additions, deletions, and risk.
-- Inspect issue cards grouped by file with line numbers and code snippets.
-- See a 0-100 risk score, risk factor breakdown, confidence, and merge
-  recommendation.
-- Load bundled example diffs from the dashboard.
-- Browse prepared reports on `/examples`.
-- Run entirely locally with `MockAIProvider`.
-- Install an MVP GitHub App that reviews `opened`, `reopened`, and `synchronize`
-  pull request events through installation-token authentication.
-- Create or update one structured marker comment per PR instead of duplicating
-  reports after each push.
+Use the bundled examples or a public diff on the hosted demo. For private code,
+run your own instance and choose where the review is processed.
 
-## Review Modes
+## What you get
 
-| Mode                 | Focus                                                                  |
-| -------------------- | ---------------------------------------------------------------------- |
-| General              | Broad pull request risks, error handling, security, and large diffs.   |
-| React                | Effects, memoization, list rendering, keys, props, and component flow. |
-| TypeScript           | `any`, assertions, compiler suppressions, and typed API contracts.     |
-| Frontend Performance | Inline props, render cost, array work, large lists, and derived state. |
+| Capability                       | What it helps you do                                                     |
+| -------------------------------- | ------------------------------------------------------------------------ |
+| File and line references         | Go from a finding to the changed code and a suggested fix.               |
+| Four review modes                | Focus on General, React, TypeScript, or Frontend Performance concerns.   |
+| Explained risk score             | Inspect the factors contributing to a score from 0 to 100.               |
+| Test suggestions                 | Turn review findings into cases to verify before merging.                |
+| GitHub App integration           | Create or update one report comment on PR open, reopen, and new commits. |
+| Validated JSON API               | Reuse the review result in another UI or workflow.                       |
+| Deterministic examples and evals | Explore the pipeline and check regressions without model costs.          |
 
-## Architecture
+The project is useful for trying a first review pass on a diff or building your
+own review workflow. The parser, provider interface, Zod schemas, and GitHub
+integration are available to inspect and extend under the MIT license.
 
-ReviewPilot AI separates the dashboard, API contract, validation, and provider
-logic:
+## Quick start
 
-- `app/page.tsx` renders the interactive diff analyzer.
-- `app/examples/page.tsx` renders prepared portfolio examples.
-- `app/api/review/route.ts` accepts review requests and returns validated JSON.
-- `lib/review/runReview.ts` is the shared application service used by manual and
-  GitHub-triggered reviews.
-- `app/api/github/webhook/route.ts` verifies and filters GitHub webhooks.
-- `lib/github/` contains GitHub App auth, a mockable REST client, orchestration,
-  optional persistent delivery deduplication, and safe Markdown comment formatting.
-- `lib/schemas/review.ts` defines Zod request and response schemas.
-- `lib/diff/parseDiff.ts` parses unified diffs into files, hunks, and lines.
-- `lib/ai/reviewProvider.ts` defines the provider interface.
-- `lib/ai/getReviewProvider.ts` selects the active provider from environment
-  configuration.
-- `lib/ai/mockReview.ts` implements `MockAIProvider` with deterministic
-  heuristics and explainable risk factors over parsed diff data.
-- `lib/ai/openAIReviewProvider.ts` implements the optional OpenAI-compatible
-  provider with direct `fetch`, strict JSON prompting, and Zod validation.
-- `app/components/review-result.tsx` renders reusable review report UI.
-
-See [docs/architecture.md](./docs/architecture.md) for the detailed
-request/response flow and future LLM integration path.
-
-```mermaid
-sequenceDiagram
-  GitHub->>Webhook: pull_request.synchronize
-  Webhook->>Webhook: Verify HMAC signature
-  Webhook->>GitHub API: Request installation token
-  Webhook->>GitHub API: Fetch pull request diff
-  Webhook->>ReviewProvider: Analyze diff
-  ReviewProvider-->>Webhook: Structured ReviewResult
-  Webhook->>GitHub API: Create or update PR comment
-```
-
-## Pages
-
-| Route                | Purpose                                       |
-| -------------------- | --------------------------------------------- |
-| `/`                  | Interactive diff analyzer.                    |
-| `/examples`          | Prepared example review reports.              |
-| `/api/github/status` | Safe GitHub integration configuration status. |
-
-## Tech Stack
-
-- Next.js 16 App Router
-- React 19
-- TypeScript
-- Tailwind CSS 4
-- Zod
-- Lucide React
-- ESLint
-- Prettier
-
-## How to Run Locally
-
-Install dependencies:
+Use **[Node.js 24 LTS](https://nodejs.org/en/about/previous-releases)**, npm, and Git.
 
 ```bash
-npm install
-```
-
-Create local environment variables:
-
-```bash
-cp .env.example .env.local
-```
-
-Start the development server:
-
-```bash
+git clone https://github.com/JohnImril/reviewpilot-ai.git
+cd reviewpilot-ai
+npm ci
 npm run dev
 ```
 
-Open `http://localhost:3000`.
+Open [localhost:3000](http://localhost:3000) and click **Load Example Diff**,
+then **Analyze Diff**. On a fresh clone, no `.env` file, database, GitHub App,
+or API key is required: the default provider is `mock`.
 
-Prepared examples are available at `http://localhost:3000/examples`.
-
-The committed `.env.example` includes all supported variables:
-
-```env
-AI_PROVIDER=mock
-OPENAI_API_KEY=
-OPENAI_MODEL=gpt-5.4-mini
-GITHUB_APP_ID=
-GITHUB_APP_PRIVATE_KEY=
-GITHUB_WEBHOOK_SECRET=
-GITHUB_MAX_DIFF_CHARS=100000
-```
-
-GitHub credentials are required only for the webhook integration. Read the
-step-by-step [GitHub App setup guide](./docs/github-app-setup.md) before adding
-them locally or in Vercel. Never commit the generated private key or webhook
-secret.
-
-## AI Integration
-
-ReviewPilot AI is safe to run without API keys because `MockAIProvider` is the
-default. To demonstrate production AI integration patterns, the app also
-includes an optional OpenAI-compatible provider behind the same
-`ReviewProvider` interface.
-
-Enable the real provider with environment variables:
+To review your own changes, run one of these commands in the repository you
+want to review, then paste its output into ReviewPilot:
 
 ```bash
+git diff                 # Unstaged changes in tracked files
+git diff --cached        # Staged changes, including staged new files
+git diff main...HEAD     # Branch changes; replace main with your base branch
+```
+
+See the [setup and troubleshooting guide](./docs/getting-started.md) for
+environment variables, Windows instructions, and common errors.
+
+## Choose how reviews run
+
+|                         | Mock (default)                                        | OpenAI (opt-in)                                                      |
+| ----------------------- | ----------------------------------------------------- | -------------------------------------------------------------------- |
+| How it works            | Deterministic rules over the parsed diff              | A model reviews the diff and parsed metadata                         |
+| Configuration           | None on a fresh clone                                 | `AI_PROVIDER=openai` and `OPENAI_API_KEY`                            |
+| External model requests | None                                                  | Diff and metadata are sent to OpenAI                                 |
+| Best use                | Exploring the workflow, development, repeatable tests | Trying model-generated reviews on your own instance                  |
+| Limits                  | Pattern checks can flag correct code or miss bugs     | Output can vary or be incorrect; API usage is billed by the provider |
+
+For OpenAI reviews, create `.env.local` in the project root:
+
+```dotenv
 AI_PROVIDER=openai
 OPENAI_API_KEY=your_api_key
-OPENAI_MODEL=your-model-name
+OPENAI_MODEL=your_model_id
 ```
 
-If `AI_PROVIDER` is missing or invalid, the provider factory falls back to the
-mock provider. In OpenAI mode, prompts ask for strict JSON only, model output is
-parsed, and the result must pass the Zod `ReviewResultSchema` before it reaches
-the API response. Invalid JSON, invalid schema output, or missing configuration
-is rejected with a clear API error instead of being silently accepted.
+Replace the placeholders with your key and a model available to your account
+that supports Chat Completions with JSON object output, then restart the server.
+The current provider calls OpenAI directly; custom API base URLs and other model
+vendors are not configurable. See [provider configuration](./docs/getting-started.md#use-openai)
+for defaults and error behavior.
 
-## Example Input / Output
+For PR comments, follow the [GitHub App setup guide](./docs/github-app-setup.md).
+The App fetches the diff, runs a General review using your configured provider,
+and updates its report after new commits. It does not clone the repository or
+execute PR code.
 
-Request:
+## Example finding
 
-```json
-{
-	"diff": "diff --git a/app/components/UserSearch.tsx b/app/components/UserSearch.tsx\n...",
-	"mode": "react"
-}
-```
+For the bundled React search example, mock mode flags an added network request:
 
-Response:
+> **Network request needs failure handling** · medium severity
+>
+> `app/components/UserSearch.tsx:9`
+>
+> `fetch("/api/users?query=" + query)`
+>
+> **Suggested fix:** Add try/catch, check response status, and expose loading and
+> failure states close to the request flow.
 
-```json
-{
-	"summary": "ReviewPilot inspected 1 changed file with 10 additions and 1 deletion in React mode and found 2 possible bugs and 0 refactoring suggestions. Overall risk is low with a 30/100 score.",
-	"overallRisk": "low",
-	"riskScore": 30,
-	"riskFactors": [
-		{
-			"label": "Medium-severity findings",
-			"impact": 20,
-			"severity": "medium",
-			"reason": "2 medium review findings add correctness or maintainability risk."
-		},
-		{
-			"label": "Missing network error handling",
-			"impact": 10,
-			"severity": "medium",
-			"reason": "fetch or axios calls without nearby failure handling can leave loading, error, or data state inconsistent."
-		}
-	],
-	"changedFiles": [
-		{
-			"filePath": "app/components/UserSearch.tsx",
-			"language": "TSX",
-			"additions": 10,
-			"deletions": 1,
-			"riskLevel": "medium"
-		}
-	],
-	"possibleBugs": [
-		{
-			"title": "Verify useEffect dependencies",
-			"severity": "medium",
-			"location": {
-				"filePath": "app/components/UserSearch.tsx",
-				"lineNumber": 7,
-				"codeSnippet": "useEffect(() => {"
-			},
-			"description": "This added effect should be checked for stale closures, incomplete dependencies, and repeated side effects.",
-			"suggestedFix": "Confirm every value read inside the effect is represented in the dependency array or intentionally stable."
-		}
-	],
-	"refactoringSuggestions": [],
-	"testSuggestions": [
-		"Add a React component test that verifies the effect reacts to changed inputs without running unnecessarily.",
-		"Add or update tests for the primary user-visible behavior changed by this diff."
-	],
-	"mergeRecommendation": "needs_changes",
-	"confidence": 0.83
-}
-```
+This is a review prompt for a human to check, not proof of a bug. The
+[API guide](./docs/example-output.md) includes a runnable request and the full
+deterministic response.
 
-More examples are documented in
-[docs/example-output.md](./docs/example-output.md).
+## Documentation
 
-## Scripts
+| Guide                                              | Contents                                                      |
+| -------------------------------------------------- | ------------------------------------------------------------- |
+| [Getting started](./docs/getting-started.md)       | Local setup, providers, configuration, troubleshooting        |
+| [GitHub App setup](./docs/github-app-setup.md)     | Permissions, installation, webhook testing, deployment limits |
+| [API and example output](./docs/example-output.md) | Request format, modes, a reproducible response, errors        |
+| [Architecture](./docs/architecture.md)             | Parser, shared review service, providers, GitHub flow         |
+| [Prompt design](./docs/prompt-design.md)           | Model instructions and response validation                    |
+| [Evaluation guide](./evals/README.md)              | Golden cases, mock checks, opt-in real-provider evals         |
+| [Contributing](./CONTRIBUTING.md)                  | First contributions, development commands, pull requests      |
 
-| Command                                                 | Description                                 |
-| ------------------------------------------------------- | ------------------------------------------- |
-| `npm run dev`                                           | Start the local development server.         |
-| `npm run build`                                         | Create a production build.                  |
-| `npm run start`                                         | Start the production server after building. |
-| `npm run lint`                                          | Run ESLint.                                 |
-| `npm run test`                                          | Run Vitest unit tests.                      |
-| `npm run test:watch`                                    | Run Vitest in watch mode.                   |
-| `npm run eval:mock`                                     | Run deterministic golden-case AI evals.     |
-| `npm run github:webhook:test`                           | Send a locally signed fixture webhook.      |
-| `npm run github:smoke -- --repo OWNER/REPO --pr NUMBER` | Live GitHub App dry-run (opt-in).           |
-| `npm run format`                                        | Format files with Prettier.                 |
-| `npm run format:check`                                  | Check formatting without writing changes.   |
+Built with Next.js 16, React 19, TypeScript, Tailwind CSS 4, Zod, and Vitest.
 
-## CI / Quality Checks
+## Current limits and next steps
 
-GitHub Actions runs quality checks on pushes and pull requests targeting
-`master`. The CI workflow installs dependencies with `npm ci`, then runs the same
-quality gates expected before release: format checking, linting, Vitest tests,
-mock AI evals, and a production build.
+- Reviews see the submitted diff, not the full repository or runtime behavior.
+  Risk scores and confidence values are not measured probabilities of correctness.
+- The manual API accepts up to 120,000 characters. GitHub PR diffs default to a
+  100,000-character limit; oversized PRs receive a notice instead of a partial review.
+- The GitHub App runs synchronously and uses best-effort delivery deduplication.
+  Durable queues and atomic shared storage are needed for reliable multi-instance use.
+- Authentication, rate limiting, saved history, inline annotations, and Check
+  Runs are not included. Protect a public deployment before enabling a paid provider.
 
-Run the CI checks locally:
+Useful next steps are reducing false positives with more evaluation cases,
+making webhook processing durable, and adding repository context and inline
+findings. These are planned directions, not available features or promised dates.
 
-```bash
-npm run format:check
-npm run lint
-npm run test
-npm run eval:mock
-npm run build
-```
+## Contribute or share feedback
 
-## AI Evals
+Found a false positive or a missed issue? [Open an issue](https://github.com/JohnImril/reviewpilot-ai/issues/new/choose)
+with a small, sanitized diff and the expected finding. Reproducible examples are
+especially helpful for improving review quality.
 
-The `evals/` directory contains golden cases for core review behaviors such as
-React hook risk, weak TypeScript typing, raw HTML security risk, and missing
-network error handling. These cases document what good review output should
-catch and provide a lightweight way to compare provider output against expected
-findings.
+First contributions can include a regression case, a setup clarification, or a
+reproducible bug report. Start with [CONTRIBUTING.md](./CONTRIBUTING.md).
 
-Run the deterministic mock evals:
-
-```bash
-npm run eval:mock
-```
-
-The eval script forces mock mode and never calls external APIs. Production AI
-integrations should be evaluated against representative cases like these, not
-only tested manually through the UI.
-
-Opt-in real-provider evals reuse those cases. Set `RUN_REAL_PROVIDER_EVALS=1`
-and `OPENAI_API_KEY`, then run `npm run eval:real`. They stay out of CI
-because they use network access and incur provider cost.
-
-For a single-instance, long-lived Node deployment only,
-`GITHUB_DELIVERY_STORE_PATH` enables a best-effort file-backed delivery store.
-It is not transactional under concurrent access and is explicitly disabled on
-Vercel. Serverless or multi-instance deployments need an external atomic store.
-
-## Testing
-
-The core review logic is covered with Vitest:
-
-- `lib/diff/parseDiff.ts` tests cover unified diff parsing, file paths,
-  languages, additions, deletions, hunks, line numbers, package changes, and
-  invalid input.
-- `lib/ai/mockReview.ts` tests cover location-aware heuristics for React,
-  TypeScript, network error handling, XSS risk, cleanup findings, changed-file
-  summaries, explainable risk scores, sensitive file paths, package changes,
-  score-to-risk mapping, and Zod response validation.
-
-Run the tests:
-
-```bash
-npm run test
-```
-
-## Future Improvements
-
-- Add streaming review progress for larger diffs.
-- Add repository-aware context ingestion for changed files.
-- Add authentication and saved review history.
-- Move GitHub webhook work to a durable queue with a persistent delivery store.
-- Add Check Runs and optional inline annotations.
-- Add installation management and multi-tenant controls before claiming
-  production readiness.
-- Add automated screenshot generation for release docs.
-- Add automated LLM evals against golden cases for real provider outputs.
-
-## Release Checklist
-
-- Run quality checks locally.
-- Capture fresh screenshots for the README.
-- Push the repository to GitHub.
-- Deploy the app to Vercel.
+If ReviewPilot is useful to you, a GitHub star helps you find it again and lets
+the maintainer know the project is worth continuing.
 
 ## License
 
-MIT. See [LICENSE](./LICENSE).
+[MIT](./LICENSE).
